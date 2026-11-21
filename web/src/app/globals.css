@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* Univers Qamar (même palette que l'appli et la maquette Figma).
+   Nuit : pages commerçant. Clair (.clair) : pages vues par les clients du commerce et affiche. */
+:root {
+  --background: #0b0b0d;
+  --foreground: #f5f3ef;
+  --muted: #9a958f;
+  --surface: #141416;
+  --surface-2: #1c1c1f;
+  --line: rgba(255, 255, 255, 0.1);
+  --accent: #fc4f00;
+  --accent-soft: rgba(252, 79, 0, 0.16);
+  --on-accent: #0b0b0d;
+  --ok: #3ecf8e;
+  --danger: #ff5a4f;
+  color-scheme: dark;
+}
+
+.clair {
+  --background: #f1efec;
+  --foreground: #0d0d0f;
+  --muted: #625e58;
+  --surface: #ffffff;
+  --surface-2: #e8e5e0;
+  --line: rgba(13, 13, 15, 0.1);
+  --accent-soft: rgba(252, 79, 0, 0.12);
+  --ok: #1f7a4d;
+  --danger: #c4281c;
+  color-scheme: light;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-ok: var(--ok);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Étiquette Qamar : Geist Mono, petites capitales espacées. */
+@utility label-mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Bouton principal : orange Qamar, texte nuit, libellé en mono. */
+@utility btn-qamar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 1rem;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 0.95rem 1.25rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.1s ease, filter 0.15s ease;
+  &:hover {
+    filter: brightness(1.08);
+  }
+  &:active {
+    transform: scale(0.98);
+  }
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+/* Champs : fond surface 2, bordure fine, focus orange. */
+@utility field-qamar {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+  outline: none;
+  &:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}

@@ -1,0 +1,26 @@
+# Dépendances et fichiers générés
+node_modules/
+.next/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Secrets : jamais dans git (garder seulement les modèles .env.example)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+
+# Données locales (base de dev, certificats Wallet)
+.data/
+
+# Outils locaux
+graphify-out/
+.playwright-mcp/
+.DS_Store
