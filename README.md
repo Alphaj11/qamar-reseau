@@ -3,7 +3,7 @@
 ## Structure
 - `web/` — Next.js : page d'inscription client, API (images de tampons, API caisse, plus tard cartes Apple/Google), futur back-office.
 - `mobile/` — application commerçant (Expo / React Native, iPhone + Android) : connexion vendeur, scanner QR, tampons / points / récompenses, **mode hors ligne**.
-- `supabase/migrations/` — schéma de la base de données (à appliquer quand le compte Supabase sera créé).
+- `supabase/` — schéma de la base Postgres (`migrations/`) et configuration de Supabase en local (`config.toml`).
 
 ## Lancer en local
 ```bash
@@ -49,9 +49,45 @@ Test complet de l'API (serveur lancé) : `cd web && node scripts/e2e-api.mjs`.
 - La file est envoyée au retour du réseau, au retour de l'appli au premier plan, et toutes les 30 s. Le serveur ignore les doublons.
 - Logique testée : `cd mobile && npm test`.
 
-## Données en développement
-En attendant Supabase, les données sont dans `web/.data/dev-db.json` (ignoré par git).
-Supprimer ce fichier remet les données de démo à zéro.
+## Base de données
+Le serveur choisit tout seul :
+- **`DATABASE_URL` défini** dans `web/.env.local` → base **Postgres** (Supabase en local ou en ligne). C'est le mode à utiliser pour tester « comme en vrai » : types, clés, valeurs permises et suppressions en cascade sont vérifiés par la base.
+- **Sinon** → fichier `web/.data/dev-db.json` (ignoré par git), pratique pour bricoler. Supprimer ce fichier remet la démo à zéro.
+
+Dans les deux cas, une base vide est remplie avec les comptes de démo au premier lancement.
+
+### Supabase en local (recommandé)
+Il faut **Docker Desktop** lancé sur l'ordinateur.
+```bash
+npx supabase start            # démarre Postgres + le tableau de bord Supabase (http://localhost:54323)
+npx supabase db reset         # crée les tables à partir de supabase/migrations
+```
+Puis dans `web/.env.local` :
+```
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+```
+Relancer `npm run dev`. `npx supabase stop` arrête tout ; `npx supabase db reset` remet la base à zéro.
+
+### Sans Docker
+N'importe quel Postgres 15+ convient : créer une base, puis `psql "$DATABASE_URL" -f supabase/migrations/0001_init.sql`.
+
+### Le jour de la mise en ligne
+Créer le projet sur supabase.com, appliquer la migration (`npx supabase link` puis `npx supabase db push`), et mettre chez l'hébergeur `DATABASE_URL` = l'adresse « Session pooler » donnée par Supabase (Project Settings › Database). Rien d'autre ne change dans le code.
+
+## Tests automatiques
+À chaque modification envoyée sur GitHub (et sur chaque pull request), `.github/workflows/ci.yml` vérifie :
+- l'appli commerçant : types, lint, tests du mode hors ligne ;
+- le serveur : types, lint, build de production, puis **tous les tests de bout en bout de l'API sur une vraie base Postgres**.
+
+En local, pour lancer les mêmes tests de bout en bout :
+```bash
+cd web
+bash scripts/dev-wallet-certs.sh       # faux certificats Wallet + .env.local
+# ajouter dans .env.local les fausses clés de test (voir l'étape « Configuration de test » de ci.yml)
+npm run dev                            # dans un autre terminal
+node scripts/e2e-api.mjs
+```
+Le script lit et écrit dans la même base que le serveur (Postgres si `DATABASE_URL` est défini, sinon le fichier JSON).
 
 ## Avancement
 - [x] Sprint 1 : structure, schéma BDD, générateur de tampons, inscription client
@@ -63,4 +99,5 @@ Supprimer ce fichier remet les données de démo à zéro.
 - [x] Mode démo « Découvrir l'appli » : boulangerie fictive en lecture seule (`web/src/lib/showcase.ts`)
 - [x] Sécurité : audit des 10 erreurs courantes, voir [SECURITE.md](SECURITE.md)
 - [x] Préparation App Store : `mobile/eas.json`, pages /aide et /confidentialite, voir [PUBLICATION.md](PUBLICATION.md)
-- [ ] Sprint 5 : hébergement https, Supabase, Stripe live, envoi à Apple (étapes dans PUBLICATION.md)
+- [x] Base Postgres / Supabase : schéma à jour, serveur branché, tests de bout en bout sur Postgres, tests automatiques sur GitHub
+- [ ] Sprint 5 : hébergement https, projet Supabase en ligne, Stripe live, envoi à Apple (étapes dans PUBLICATION.md)

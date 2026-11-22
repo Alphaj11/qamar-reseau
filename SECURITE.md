@@ -7,7 +7,7 @@ Audit fait le 20/11/2026 sur `web` (Next.js 16) et `mobile` (Expo 58).
 | # | Point | État | Ce qui a été fait / constaté |
 |---|---|---|---|
 | 1 | Clés secrètes dans le code | ✅ OK | Aucune clé secrète dans l'appli mobile (seulement `EXPO_PUBLIC_API_URL`). Les clés Stripe, Apple, Google restent côté serveur. `.env*` ignoré par git (sauf `.env.example`). |
-| 2 | Tables Supabase ouvertes | ✅ Prêt | La migration `supabase/migrations/0001` active la RLS sur toutes les tables avec des règles par commerce. Base pas encore branchée. |
+| 2 | Tables Supabase ouvertes | ✅ OK | La RLS est activée sur toutes les tables, **sans aucune règle** : les clés publiques de Supabase (anon) ne voient rien. Seul le serveur, connecté directement à Postgres (`DATABASE_URL`), lit et écrit, et vérifie lui-même les droits patron / vendeur. Testé en local sur Postgres. |
 | 3 | Premium avant paiement | ✅ OK | L'abonnement n'est activé que par le webhook Stripe signé (4 évènements gérés, test e2e « signature refusée »). |
 | 4 | Sauvegardes | ⚠️ À faire | Voir « Sauvegardes et restauration » ci-dessous. |
 | 5 | Dépenses API IA | — Non concerné | Aucune API d'IA appelée. |
