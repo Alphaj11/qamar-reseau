@@ -87,6 +87,10 @@ export const api = {
   uploadLogo: (token: string, image: string) =>
     call<{ settings: ProgramSettings }>("/api/staff/program/logo", { method: "POST", token, body: JSON.stringify({ image }), timeoutMs: 30000 }),
   deleteLogo: (token: string) => call<{ settings: ProgramSettings }>("/api/staff/program/logo", { method: "DELETE", token }),
+  /** Envoie la photo de bannière (base64) : le serveur la recadre au format Wallet. */
+  uploadBanner: (token: string, image: string) =>
+    call<{ settings: ProgramSettings }>("/api/staff/program/banner", { method: "POST", token, body: JSON.stringify({ image }), timeoutMs: 30000 }),
+  deleteBanner: (token: string) => call<{ settings: ProgramSettings }>("/api/staff/program/banner", { method: "DELETE", token }),
   updateSettings: (token: string, patch: Partial<ProgramSettings>) =>
     call<{ settings: ProgramSettings }>("/api/staff/program", { method: "PATCH", token, body: JSON.stringify(patch) }),
   campaigns: (token: string) => call<{ campaigns: Campaign[]; perDay: number; remainingToday: number }>("/api/staff/campaigns", { token }),
@@ -119,15 +123,33 @@ export const api = {
     call<{ ok: true }>("/api/staff/me/pin", { method: "POST", token, body: JSON.stringify({ current, next }) }),
   /** Lien de paiement / facturation : utilisé seulement sur la version web (pas d'achat dans les applis). */
   billing: (token: string) => call<{ url: string }>("/api/staff/billing", { method: "POST", token }),
-  /** Export CSV des clients (texte brut). */
-  async exportCustomers(token: string) {
+  /** Fichier d'export (Excel, CSV, PDF) : version web de l'appli, téléchargé directement. */
+  async exportFile(token: string, q: ExportQuery) {
     let res: Response;
     try {
-      res = await fetch(`${API_URL}/api/staff/export`, { headers: { Authorization: `Bearer ${token}` } });
+      res = await fetch(`${API_URL}/api/staff/export?${exportParams(q)}`, { headers: { Authorization: `Bearer ${token}` } });
     } catch {
       throw new OfflineError("Pas de connexion");
     }
-    if (!res.ok) throw new ApiError(`Erreur ${res.status}`, res.status);
-    return res.text();
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(body.error ?? `Erreur ${res.status}`, res.status);
+    }
+    const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? `export.${q.format}`;
+    return { blob: await res.blob(), name };
+  },
+  /** Lien de téléchargement à usage unique (2 min) : le téléphone l'ouvre dans son navigateur. */
+  async exportLink(token: string, q: ExportQuery) {
+    const { path } = await call<{ path: string }>(`/api/staff/export/link?${exportParams(q)}`, { token });
+    return `${API_URL}${path}`;
   },
 };
+
+export interface ExportQuery {
+  format: "xlsx" | "csv" | "pdf";
+  data?: "clients" | "passages";
+  days?: number;
+}
+
+const exportParams = (q: ExportQuery) =>
+  new URLSearchParams({ format: q.format, data: q.data ?? "clients", days: String(q.days ?? 30) }).toString();

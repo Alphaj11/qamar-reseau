@@ -10,7 +10,8 @@ import { toRemoteError, useRemote } from "@/lib/useRemote";
 import { AppearanceSection, HEX, OfferSection, ProximitySection } from "@/features/carte/editor";
 import { MessagesSection } from "@/features/carte/Messages";
 import { ShareSection } from "@/features/carte/Share";
-import { Button, CardPreview, Chips, ErrorMessage, Loading, Notice, OwnerOnly, ScrollScreen } from "@/ui/components";
+import { Button, CardPreview, Chips, ErrorMessage, Loading, Notice, OwnerOnly, ScrollScreen, Segmented } from "@/ui/components";
+import { WalletPreview } from "@/ui/WalletPreview";
 import { space } from "@/ui/theme";
 
 type CarteSection = "apparence" | "offre" | "qr" | "messages" | "proximite";
@@ -70,6 +71,8 @@ function Editor({ section }: { section: "apparence" | "offre" | "proximite" }) {
   const [draft, setDraft] = useState<ProgramSettings>();
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string }>();
+  // Par défaut on montre la carte dans un iPhone : c'est ce que verra le client
+  const [view, setView] = useState<"apple" | "google" | "card">("apple");
 
   // Le brouillon repart des réglages serveur à chaque chargement
   useEffect(() => {
@@ -89,10 +92,9 @@ function Editor({ section }: { section: "apparence" | "offre" | "proximite" }) {
 
   // Seuls les champs modifiés sont envoyés
   const changes = (Object.keys(draft) as (keyof ProgramSettings)[]).filter(
-    (k) => k !== "slug" && k !== "logo" && JSON.stringify(draft[k]) !== JSON.stringify(data.settings[k]),
+    (k) => k !== "slug" && k !== "logo" && k !== "banner" && JSON.stringify(draft[k]) !== JSON.stringify(data.settings[k]),
   );
-  const colorError = (["bgColor", "fgColor", "accentColor"] as const).some((k) => !HEX.test(draft[k]));
-  const stamps = draft.type === "stamps";
+  const colorError = (["bgColor", "fgColor", "accentColor"] as const).some((k) => !HEX.test(draft[k])) || (draft.labelColor !== undefined && !HEX.test(draft.labelColor));
 
   async function save() {
     if (!session || !draft) return;
@@ -113,28 +115,16 @@ function Editor({ section }: { section: "apparence" | "offre" | "proximite" }) {
 
   return (
     <>
-      {section !== "proximite" && (
-        <CardPreview
-          merchantName={draft.merchantName}
-          title={draft.name}
-          type={draft.type}
-          value={stamps ? Math.ceil(draft.stampsRequired / 2) : Math.round(draft.pointsRequired / 2)}
-          goal={stamps ? draft.stampsRequired : draft.pointsRequired}
-          rewardLabel={draft.rewardLabel}
-          bgColor={HEX.test(draft.bgColor) ? draft.bgColor : data.settings.bgColor}
-          fgColor={HEX.test(draft.fgColor) ? draft.fgColor : data.settings.fgColor}
-          accentColor={HEX.test(draft.accentColor) ? draft.accentColor : data.settings.accentColor}
-          footer="Aperçu de la carte dans le Wallet"
-          stampIcon={draft.stampIcon}
-          pattern={draft.pattern}
-          logo={draft.logo}
-        />
-      )}
+      {section !== "proximite" && <Preview draft={draft} fallback={data.settings} view={view} onView={setView} />}
 
       {section === "apparence" && (
         <AppearanceSection
           draft={draft}
           set={set}
+          onBanner={(banner) => {
+            setDraft((d) => (d ? { ...d, banner } : d));
+            setData((d) => (d ? { ...d, settings: { ...d.settings, banner } } : d));
+          }}
           onLogo={(logo) => {
             // Le logo est enregistré tout de suite : on l'applique au brouillon et à la référence serveur
             setDraft((d) => (d ? { ...d, logo } : d));
@@ -157,5 +147,51 @@ function Editor({ section }: { section: "apparence" | "offre" | "proximite" }) {
         {changes.length > 0 && <Button label="Annuler les modifications" variant="secondary" onPress={() => setDraft(data.settings)} />}
       </View>
     </>
+  );
+}
+
+/** Aperçu en direct : dans un iPhone (Apple Wallet), un Android (Google Wallet) ou la carte seule. */
+function Preview({
+  draft,
+  fallback,
+  view,
+  onView,
+}: {
+  draft: ProgramSettings;
+  fallback: ProgramSettings;
+  view: "apple" | "google" | "card";
+  onView: (v: "apple" | "google" | "card") => void;
+}) {
+  const stamps = draft.type === "stamps";
+  const color = (v: string | undefined, f: string) => (v && HEX.test(v) ? v : f);
+  const common = {
+    merchantName: draft.merchantName,
+    title: draft.name,
+    type: draft.type,
+    value: stamps ? Math.ceil(draft.stampsRequired / 2) : Math.round(draft.pointsRequired / 2),
+    goal: stamps ? draft.stampsRequired : draft.pointsRequired,
+    rewardLabel: draft.rewardLabel,
+    bgColor: color(draft.bgColor, fallback.bgColor),
+    fgColor: color(draft.fgColor, fallback.fgColor),
+    accentColor: color(draft.accentColor, fallback.accentColor),
+    labelColor: draft.labelColor && HEX.test(draft.labelColor) ? draft.labelColor : undefined,
+    stampIcon: draft.stampIcon,
+    pattern: draft.pattern,
+    logo: draft.logo,
+    banner: draft.banner,
+  };
+  return (
+    <View style={{ gap: space.md }}>
+      <Segmented
+        options={[
+          { value: "apple", label: "iPhone" },
+          { value: "google", label: "Android" },
+          { value: "card", label: "Carte seule" },
+        ]}
+        value={view}
+        onChange={onView}
+      />
+      {view === "card" ? <CardPreview {...common} footer="Aperçu de la carte" /> : <WalletPreview kind={view} {...common} />}
+    </View>
   );
 }

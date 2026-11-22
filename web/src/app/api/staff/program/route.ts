@@ -21,6 +21,7 @@ const patchSchema = z
     bgColor: color,
     fgColor: color,
     accentColor: color,
+    labelColor: color,
     stampIcon: z.enum(STAMP_ICON_IDS as [StampIcon, ...StampIcon[]]),
     template: z.string().trim().max(30),
     pattern: z.boolean(),

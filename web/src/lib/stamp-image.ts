@@ -75,11 +75,24 @@ function pointsSvg(p: Program, points: number, w: number, h: number) {
 export function stripSvg(p: Program, value: number, format: StripFormat = "preview") {
   const { width: w, height: h } = STRIP_FORMATS[format];
   const body = p.type === "stamps" ? stampsSvg(p, value, w, h) : pointsSvg(p, value, w, h);
-  const deco = p.pattern && isStampIcon(p.stampIcon) ? patternSvg(p.stampIcon, w, h, p.fgColor) : "";
+  // Avec une photo, on pose un voile de la couleur de fond pour garder les tampons lisibles (pas de filigrane).
+  const backdrop = p.banner ? `<rect width="100%" height="100%" fill="${p.bgColor}" fill-opacity="0.5"/>` : `<rect width="100%" height="100%" fill="${p.bgColor}"/>`;
+  const deco = !p.banner && p.pattern && isStampIcon(p.stampIcon) ? patternSvg(p.stampIcon, w, h, p.fgColor) : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-    <rect width="100%" height="100%" fill="${p.bgColor}"/>${deco}${body}</svg>`;
+    ${backdrop}${deco}${body}</svg>`;
+}
+
+/** Photo de bannière du commerçant (data URL JPEG/PNG), recadrée au format demandé. */
+function bannerPng(p: Program, w: number, h: number) {
+  const data = p.banner?.match(/^data:image\/(?:jpeg|png);base64,(.+)$/)?.[1];
+  if (!data) return undefined;
+  return sharp(Buffer.from(data, "base64")).resize(w, h, { fit: "cover" }).toBuffer();
 }
 
 export async function stripPng(p: Program, value: number, format: StripFormat = "preview") {
-  return sharp(Buffer.from(stripSvg(p, value, format))).png().toBuffer();
+  const { width: w, height: h } = STRIP_FORMATS[format];
+  const overlay = Buffer.from(stripSvg(p, value, format));
+  const photo = await bannerPng(p, w, h);
+  if (!photo) return sharp(overlay).png().toBuffer();
+  return sharp(photo).composite([{ input: overlay }]).png().toBuffer();
 }

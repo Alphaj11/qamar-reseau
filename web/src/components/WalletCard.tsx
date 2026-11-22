@@ -17,6 +17,8 @@ export function WalletCard({
   const isStamps = program.type === "stamps";
   const goal = isStamps ? program.stampsRequired : program.pointsRequired;
   const remaining = Math.max(0, goal - value);
+  // Couleur des petits titres choisie dans le studio (sinon celle du texte)
+  const label = program.labelColor ? { color: program.labelColor, opacity: 1 } : undefined;
 
   return (
     <div
@@ -40,7 +42,7 @@ export function WalletCard({
           <span className="font-semibold truncate">{program.merchantName}</span>
         </div>
         <div className="text-right leading-tight">
-          <div className="text-[10px] uppercase opacity-70">{isStamps ? "Tampons" : "Points"}</div>
+          <div className="text-[10px] uppercase opacity-70" style={label}>{isStamps ? "Tampons" : "Points"}</div>
           <div className="text-lg font-semibold tabular-nums">
             {value}
             {isStamps && <span className="opacity-60">/{goal}</span>}
@@ -59,11 +61,11 @@ export function WalletCard({
 
       <div className="grid grid-cols-2 gap-3 px-4 pt-3 pb-4 text-sm">
         <div>
-          <div className="text-[10px] uppercase opacity-70">Récompense</div>
+          <div className="text-[10px] uppercase opacity-70" style={label}>Récompense</div>
           <div className="font-medium">{program.rewardLabel}</div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase opacity-70">{holder ? "Membre" : "Encore"}</div>
+          <div className="text-[10px] uppercase opacity-70" style={label}>{holder ? "Membre" : "Encore"}</div>
           <div className="font-medium">
             {holder ?? `${remaining} ${isStamps ? "tampon" : "pt"}${remaining > 1 ? "s" : ""}`}
           </div>

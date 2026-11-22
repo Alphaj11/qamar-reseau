@@ -38,7 +38,17 @@ const tap = () => {
 
 const iconXml = (name: StampIcon) => `<svg viewBox="0 0 24 24">${STAMP_ICONS[name].svg}</svg>`;
 
-export function AppearanceSection({ draft, set, onLogo }: { draft: ProgramSettings; set: SetField; onLogo: (logo: string | undefined) => void }) {
+export function AppearanceSection({
+  draft,
+  set,
+  onLogo,
+  onBanner,
+}: {
+  draft: ProgramSettings;
+  set: SetField;
+  onLogo: (logo: string | undefined) => void;
+  onBanner: (banner: string | undefined) => void;
+}) {
   const [applied, setApplied] = useState<string>();
 
   function applyTemplate(t: CardTemplate) {
@@ -47,6 +57,7 @@ export function AppearanceSection({ draft, set, onLogo }: { draft: ProgramSettin
     set("bgColor", t.bgColor);
     set("fgColor", t.fgColor);
     set("accentColor", t.accentColor);
+    set("labelColor", t.fgColor);
     set("stampIcon", t.icon);
     set("pattern", true);
     set("name", t.cardName);
@@ -82,6 +93,12 @@ export function AppearanceSection({ draft, set, onLogo }: { draft: ProgramSettin
         </View>
       </Section>
 
+      <Section title="Photo de la bannière">
+        <View style={styles.form}>
+          <BannerPicker banner={draft.banner} onBanner={onBanner} />
+        </View>
+      </Section>
+
       <Section title="Couleurs">
         <View style={styles.form}>
           <View style={styles.presets}>
@@ -97,6 +114,7 @@ export function AppearanceSection({ draft, set, onLogo }: { draft: ProgramSettin
                     tap();
                     set("bgColor", bg);
                     set("fgColor", fg);
+                    set("labelColor", fg);
                     set("accentColor", accent);
                   }}
                   style={({ pressed }) => [styles.preset, { backgroundColor: bg, transform: [{ scale: pressed ? 0.92 : 1 }] }, on && styles.presetOn]}
@@ -106,8 +124,10 @@ export function AppearanceSection({ draft, set, onLogo }: { draft: ProgramSettin
               );
             })}
           </View>
-          <ColorField label="Fond" value={draft.bgColor} onChange={(v) => set("bgColor", v)} />
+          <Hint text="Touchez une pastille ou saisissez un code couleur (#RRGGBB)." />
+          <ColorField label="Fond de la carte" value={draft.bgColor} onChange={(v) => set("bgColor", v)} />
           <ColorField label="Texte" value={draft.fgColor} onChange={(v) => set("fgColor", v)} />
+          <ColorField label="Petits titres (Récompense, Membre…)" value={draft.labelColor ?? draft.fgColor} onChange={(v) => set("labelColor", v)} />
           <ColorField label="Accent (tampons, barre)" value={draft.accentColor} onChange={(v) => set("accentColor", v)} />
         </View>
       </Section>
@@ -283,6 +303,76 @@ function LogoPicker({ logo, name, accent, bg, onLogo }: { logo?: string; name: s
   );
 }
 
+/** Photo de bannière : une vitrine, un produit phare… posée sous les tampons, avec un voile pour rester lisible. */
+function BannerPicker({ banner, onBanner }: { banner?: string; onBanner: (banner: string | undefined) => void }) {
+  const p = usePalette();
+  const { session } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function pick() {
+    if (!session) return;
+    setError(undefined);
+    if (Platform.OS !== "web") {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return setError("Accès aux photos refusé. Autorisez-le dans les réglages du téléphone.");
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [25, 10], quality: 0.7, base64: true });
+    const asset = res.canceled ? undefined : res.assets[0];
+    if (!asset) return;
+    const image = asset.base64 ?? (asset.uri.startsWith("data:") ? asset.uri : undefined);
+    if (!image) return setError("Image illisible, essayez-en une autre.");
+    setBusy(true);
+    try {
+      const out = await api.uploadBanner(session.token, image);
+      onBanner(out.settings.banner);
+    } catch (e) {
+      setError(toRemoteError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!session) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.deleteBanner(session.token);
+      onBanner(undefined);
+    } catch (e) {
+      setError(toRemoteError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <View style={{ gap: space.sm }}>
+      {banner ? (
+        <Image source={{ uri: banner }} style={[styles.banner, { borderColor: p.line }]} accessibilityLabel="Photo de bannière actuelle" />
+      ) : (
+        <View style={[styles.banner, { borderColor: p.line, backgroundColor: p.surface2, alignItems: "center", justifyContent: "center", gap: 4 }]}>
+          <Ionicons name="image-outline" size={26} color={p.muted} />
+          <Text style={{ color: p.muted, fontSize: 13 }}>Aucune photo : fond uni ou motif</Text>
+        </View>
+      )}
+      <Hint text="Votre vitrine, votre produit phare, votre ambiance… Elle s'affiche derrière les tampons, sur la carte et dans le Wallet." />
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <View style={{ flex: 1 }}>
+          <Button label={banner ? "Changer la photo" : "Ajouter une photo"} icon="camera-outline" variant="secondary" onPress={() => void pick()} loading={busy} />
+        </View>
+        {banner ? (
+          <View style={{ flex: 1 }}>
+            <Button label="Retirer" variant="secondary" onPress={() => void remove()} disabled={busy} />
+          </View>
+        ) : null}
+      </View>
+      {error ? <Notice tone="error" text={error} /> : null}
+    </View>
+  );
+}
+
 // ——— Offre ———
 
 export function OfferSection({ draft, set, hasCustomers }: { draft: ProgramSettings; set: SetField; hasCustomers: boolean }) {
@@ -317,6 +407,14 @@ export function OfferSection({ draft, set, hasCustomers }: { draft: ProgramSetti
       <Section title="Récompense">
         <View style={styles.form}>
           <Field label="Ce que le client gagne" value={draft.rewardLabel} onChangeText={(v) => set("rewardLabel", v)} maxLength={60} placeholder="Ex. : 1 café offert" />
+          <View style={{ gap: 6 }}>
+            <Label text="Idées de récompense" />
+            <View style={styles.suggestions}>
+              {REWARD_IDEAS.map((idea) => (
+                <Suggestion key={idea} text={idea} active={draft.rewardLabel === idea} onPress={() => set("rewardLabel", idea)} />
+              ))}
+            </View>
+          </View>
           <NumberField
             label={`Cadeau de bienvenue (${stamps ? "tampons" : "points"} offerts à l'inscription)`}
             value={draft.welcomeBonus}
@@ -331,6 +429,28 @@ export function OfferSection({ draft, set, hasCustomers }: { draft: ProgramSetti
         </View>
       </Section>
     </>
+  );
+}
+
+const REWARD_IDEAS = ["1 produit offert", "-10 % sur le prochain achat", "5 € de réduction", "1 boisson offerte", "1 dessert offert", "1 soin offert"];
+
+function Suggestion({ text, active, onPress }: { text: string; active: boolean; onPress: () => void }) {
+  const p = usePalette();
+  return (
+    <Pressable
+      onPress={() => {
+        tap();
+        onPress();
+      }}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      style={({ pressed }) => [
+        styles.suggestion,
+        { backgroundColor: active ? p.inverse : p.surface2, borderColor: active ? p.inverse : p.line, transform: [{ scale: pressed ? 0.96 : 1 }] },
+      ]}
+    >
+      <Text style={{ color: active ? p.onInverse : p.text, fontSize: 13 }}>{text}</Text>
+    </Pressable>
   );
 }
 
@@ -499,22 +619,54 @@ export function NumberField({
   );
 }
 
+/** Nuancier commun aux champs de couleur : couvre la plupart des chartes de commerce. */
+const SWATCHES = [
+  "#ffffff", "#f5f0e6", "#fdf6ec", "#e5e7eb", "#9ca3af", "#4b5563", "#111827", "#000000",
+  "#3b2416", "#7c4a2d", "#e0a458", "#ca8a04", "#fde68a", "#fef3c7",
+  "#7f1d1d", "#dc2626", "#fb7185", "#f3e8e4", "#b5536b", "#FC4F00",
+  "#14532d", "#16a34a", "#84cc16", "#0f766e", "#5eead4",
+  "#0f2a44", "#1d4ed8", "#5fb3f9", "#1f1033", "#7c3aed", "#c084fc",
+];
+
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const p = usePalette();
   const valid = HEX.test(value);
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
-      <View style={{ flex: 1 }}>
-        <Field
-          label={label}
-          value={value}
-          onChangeText={(t) => onChange(t.startsWith("#") ? t.slice(0, 7) : `#${t.slice(0, 6)}`)}
-          autoCapitalize="none"
-          autoCorrect={false}
-          error={valid ? undefined : "Format #RRGGBB"}
-        />
+    <View style={{ gap: space.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
+        <View style={{ flex: 1 }}>
+          <Field
+            label={label}
+            value={value}
+            onChangeText={(t) => onChange(t.startsWith("#") ? t.slice(0, 7) : `#${t.slice(0, 6)}`)}
+            autoCapitalize="none"
+            autoCorrect={false}
+            error={valid ? undefined : "Format #RRGGBB"}
+          />
+        </View>
+        <View style={[styles.swatch, { backgroundColor: valid ? value : "transparent", borderColor: p.line, marginBottom: valid ? 0 : 22 }]} />
       </View>
-      <View style={[styles.swatch, { backgroundColor: valid ? value : "transparent", borderColor: p.line, marginBottom: valid ? 0 : 22 }]} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingRight: space.md }}>
+        {SWATCHES.map((c) => {
+          const on = valid && value.toLowerCase() === c.toLowerCase();
+          return (
+            <Pressable
+              key={c}
+              onPress={() => {
+                tap();
+                onChange(c);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`${label} : ${c}`}
+              accessibilityState={{ selected: on }}
+              style={({ pressed }) => [
+                styles.chip,
+                { backgroundColor: c, borderColor: on ? p.accent : p.line, borderWidth: on ? 3 : 1, transform: [{ scale: pressed ? 0.9 : 1 }] },
+              ]}
+            />
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -533,5 +685,9 @@ const styles = StyleSheet.create({
   logo: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, overflow: "hidden" },
   presetDot: { width: 16, height: 16, borderRadius: 8 },
   swatch: { width: 50, height: 50, borderRadius: 12, borderWidth: 1 },
+  chip: { width: 30, height: 30, borderRadius: 15 },
+  banner: { width: "100%", aspectRatio: 1125 / 432, borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  suggestion: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
   location: { borderWidth: 1, borderRadius: 12, padding: space.md, gap: space.md },
 });

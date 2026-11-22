@@ -200,6 +200,44 @@ await step("Export CSV des clients (patron uniquement)", async () => {
   assert.equal((await api("/api/staff/export", { token: vendeur })).status, 403);
 });
 
+await step("Export Excel, PDF, CSV des passages et lien à usage unique", async () => {
+  const xlsx = await api("/api/staff/export?format=xlsx&days=30", { token: owner });
+  assert.equal(xlsx.status, 200);
+  assert.ok(xlsx.headers.get("content-type").includes("spreadsheetml"));
+  assert.equal(Buffer.from(await xlsx.arrayBuffer()).subarray(0, 2).toString(), "PK"); // fichier zip (format Excel)
+  const pdf = await api("/api/staff/export?format=pdf&days=90", { token: owner });
+  assert.equal(pdf.status, 200);
+  assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  const passages = await api("/api/staff/export?format=csv&data=passages", { token: owner });
+  assert.ok(Buffer.from(await passages.arrayBuffer()).subarray(3).toString("utf8").startsWith("Date;Heure;Client"));
+  assert.equal((await api("/api/staff/export?format=doc", { token: owner })).status, 400);
+  assert.equal((await api("/api/staff/export?format=pdf", { token: vendeur })).status, 403);
+  // Lien pour le téléphone : marche une fois, puis expire
+  const { path } = await (await api("/api/staff/export/link?format=pdf", { token: owner })).json();
+  assert.ok(path.startsWith("/api/staff/export?") && path.includes("t="));
+  assert.equal((await api(path)).status, 200);
+  assert.equal((await api(path)).status, 401);
+  assert.equal((await api("/api/staff/export/link?format=pdf", { token: vendeur })).status, 403);
+});
+
+await step("Studio : photo de bannière et couleur des petits titres", async () => {
+  // Petite image PNG générée à la volée (une photo réelle passe par le même chemin)
+  const png = execFileSync("node", ["-e", "require('sharp')({create:{width:400,height:200,channels:3,background:'#336699'}}).png().toBuffer().then(b=>process.stdout.write(b.toString('base64')))"], { cwd: process.cwd() }).toString();
+  const up = await api("/api/staff/program/banner", { token: owner, method: "POST", body: { image: png } });
+  assert.equal(up.status, 200);
+  assert.ok((await up.json()).settings.banner.startsWith("data:image/jpeg;base64,"));
+  const strip = await api("/api/strip/cafe-demo?value=3&format=apple");
+  assert.equal(strip.headers.get("content-type"), "image/png");
+  assert.equal((await api("/api/staff/program/banner", { token: owner, method: "POST", body: { image: "x".repeat(200) } })).status, 400);
+  assert.equal((await api("/api/staff/program/banner", { token: vendeur, method: "POST", body: { image: png } })).status, 403);
+  assert.equal((await api("/api/staff/program/banner", { token: owner, method: "DELETE" })).status, 200);
+  const before = (await (await api("/api/staff/program", { token: owner })).json()).settings;
+  const lc = await api("/api/staff/program", { token: owner, method: "PATCH", body: { labelColor: "#e0a458" } });
+  assert.equal((await lc.json()).settings.labelColor, "#e0a458");
+  assert.equal((await api("/api/staff/program", { token: owner, method: "PATCH", body: { labelColor: "orange" } })).status, 400);
+  await api("/api/staff/program", { token: owner, method: "PATCH", body: { labelColor: before.labelColor ?? before.fgColor } });
+});
+
 await step("Équipe : ajout d'un vendeur, connexion, retrait (session coupée)", async () => {
   const email = `vendeur-${Date.now()}@demo.test`;
   const added = await api("/api/staff/team", { token: owner, method: "POST", body: { name: "Vendeur test", email, pin: "4321" } });

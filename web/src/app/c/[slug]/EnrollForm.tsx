@@ -31,6 +31,8 @@ export function EnrollForm({
         {e.firstName && <span className="text-sm text-danger">{e.firstName}</span>}
       </label>
 
+      <p className="-mb-1 text-sm text-muted">Pour retrouver votre carte : un e-mail ou un téléphone suffit.</p>
+
       <label className="flex flex-col gap-1.5">
         <span className="label-mono text-muted">E-mail</span>
         <input name="email" defaultValue={v?.email} type="email" autoComplete="email" inputMode="email" className={input} />
@@ -39,7 +41,7 @@ export function EnrollForm({
 
       <label className="flex flex-col gap-1.5">
         <span className="label-mono text-muted">
-          Téléphone <span className="normal-case tracking-normal">(ou e-mail)</span>
+          Téléphone <span className="normal-case tracking-normal">(facultatif si e-mail)</span>
         </span>
         <input name="phone" defaultValue={v?.phone} type="tel" autoComplete="tel" inputMode="tel" className={input} />
         {e.phone && <span className="text-sm text-danger">{e.phone}</span>}

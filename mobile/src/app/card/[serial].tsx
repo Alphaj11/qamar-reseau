@@ -87,6 +87,8 @@ export default function CardScreen() {
         stampIcon={program.stampIcon}
         pattern={program.pattern}
         logo={program.logo}
+        banner={program.banner}
+        labelColor={program.labelColor}
         footer={pendingHere ? `${plural(pendingHere, "passage")} pas encore envoyé${pendingHere > 1 ? "s" : ""}` : undefined}
       />
 

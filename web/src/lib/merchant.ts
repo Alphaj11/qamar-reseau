@@ -287,7 +287,8 @@ export type ProgramSettings = Pick<
   | "terms"
   | "template"
   | "pattern"
-> & { slug: string; locations: StoreLocation[]; averageBasket?: number; logo?: string };
+  | "labelColor"
+> & { slug: string; locations: StoreLocation[]; averageBasket?: number; logo?: string; banner?: string };
 
 function settingsOf(p: Program): ProgramSettings {
   return {
@@ -307,6 +308,8 @@ function settingsOf(p: Program): ProgramSettings {
     template: p.template,
     pattern: p.pattern,
     logo: p.logo,
+    banner: p.banner,
+    labelColor: p.labelColor,
     terms: p.terms,
     locations: p.locations ?? [],
     averageBasket: p.averageBasket,
@@ -336,7 +339,21 @@ export function setLogo(staff: Staff, logo: string | undefined) {
   });
 }
 
-export function updateSettings(staff: Staff, patch: Partial<Omit<ProgramSettings, "slug" | "logo">>) {
+/** Photo de bannière (data URL JPEG déjà redimensionnée) ; `undefined` pour revenir au fond uni. */
+export function setBanner(staff: Staff, banner: string | undefined) {
+  requireOwner(staff);
+  return mutate((db) => {
+    const p = programOf(db, staff);
+    p.banner = banner;
+    const now = new Date().toISOString();
+    p.customizedAt ??= now;
+    const cards = db.cards.filter((c) => c.programId === p.id);
+    for (const c of cards) c.updatedAt = now;
+    return { settings: settingsOf(p), serials: cards.map((c) => c.serial), program: p };
+  });
+}
+
+export function updateSettings(staff: Staff, patch: Partial<Omit<ProgramSettings, "slug" | "logo" | "banner">>) {
   requireOwner(staff);
   return mutate((db) => {
     const p = programOf(db, staff);
@@ -419,49 +436,6 @@ export function deleteCustomer(staff: Staff, serial: string) {
     }
     return true;
   });
-}
-
-const csvCell = (v: unknown) => {
-  const s = v === undefined || v === null ? "" : String(v);
-  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
-/** Export des clients en CSV (séparateur ";" pour Excel en français). */
-export async function exportCustomersCsv(staff: Staff) {
-  requireOwner(staff);
-  const db = await load();
-  const p = programOf(db, staff);
-  const header = [
-    "Prénom",
-    "E-mail",
-    "Téléphone",
-    "Accepte les offres",
-    "Anniversaire",
-    p.type === "stamps" ? "Tampons" : "Points",
-    "Récompenses disponibles",
-    "Récompenses utilisées",
-    "Passages",
-    "Dernier passage",
-    "Inscrit le",
-  ];
-  const lines = rows(db, p).map((r) =>
-    [
-      r.firstName,
-      r.email,
-      r.phone,
-      r.marketingConsent ? "oui" : "non",
-      r.birthday ? `${r.birthday.slice(3)}/${r.birthday.slice(0, 2)}` : "",
-      p.type === "stamps" ? r.stamps : r.points,
-      r.rewardsAvailable,
-      r.rewardsRedeemed,
-      r.visits,
-      r.lastVisitAt ? parisDay(r.lastVisitAt) : "",
-      parisDay(r.createdAt),
-    ]
-      .map(csvCell)
-      .join(";"),
-  );
-  return "﻿" + [header.join(";"), ...lines].join("\r\n");
 }
 
 // ——— Équipe ———
@@ -554,4 +528,35 @@ export function revokeSession(token: string) {
   return mutate((db) => {
     db.sessions = db.sessions.filter((s) => s.token !== token);
   });
+}
+
+// ——— Export (Excel, CSV, PDF) ———
+
+export interface PassageRow {
+  occurredAt: string;
+  firstName: string;
+  serial: string;
+  kind: Transaction["kind"];
+  amount: number;
+  by: string;
+}
+
+/** Données d'export du commerce : clients, passages de la période et chiffres clés (responsable). */
+export async function exportData(staff: Staff, days = 30) {
+  requireOwner(staff);
+  const db = await load();
+  const program = programOf(db, staff);
+  const customers = rows(db, program).sort((a, b) => (b.lastVisitAt ?? b.createdAt).localeCompare(a.lastVisitAt ?? a.createdAt));
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const cardById = new Map(db.cards.map((c) => [c.id, c]));
+  const nameBySerial = new Map(customers.map((r) => [r.serial, r.firstName]));
+  const staffName = new Map(db.staff.map((s) => [s.id, s.name]));
+  const passages: PassageRow[] = programTx(db, program)
+    .filter((t) => t.occurredAt >= since)
+    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+    .map((t) => {
+      const serial = cardById.get(t.cardId)?.serial ?? "";
+      return { occurredAt: t.occurredAt, firstName: nameBySerial.get(serial) ?? "Client", serial, kind: t.kind, amount: t.amount, by: staffName.get(t.staffId) ?? "—" };
+    });
+  return { program, customers, passages, stats: await stats(staff, days), days };
 }
