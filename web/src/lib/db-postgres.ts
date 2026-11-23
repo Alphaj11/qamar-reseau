@@ -49,8 +49,8 @@ async function seedIfEmpty(seed: DevDb) {
 
 let seeded: Promise<void> | undefined;
 
-export function postgresStore(seed: DevDb) {
-  const ready = () => (seeded ??= seedIfEmpty(seed).catch((e) => {
+export function postgresStore(seed: DevDb | undefined) {
+  const ready = () => (seeded ??= (seed ? seedIfEmpty(seed) : Promise.resolve()).catch((e) => {
     seeded = undefined; // on retentera au prochain appel (base pas encore démarrée…)
     throw e;
   }));

@@ -102,7 +102,10 @@ let writeQueue: Promise<unknown> = Promise.resolve();
 /** Base Postgres si DATABASE_URL est configuré, sinon fichier JSON. */
 export const usingPostgres = () => !!process.env.DATABASE_URL;
 let pg: ReturnType<typeof postgresStore> | undefined;
-const postgres = () => (pg ??= postgresStore(SEED));
+// En production, une base vide reste vide : pas de comptes de démo (PIN 1234) sur le vrai service.
+// SEED_DEMO=1 force les données de démo (tests automatiques sur un build de production).
+const seedDemo = () => process.env.NODE_ENV !== "production" || process.env.SEED_DEMO === "1";
+const postgres = () => (pg ??= postgresStore(seedDemo() ? SEED : undefined));
 
 export async function load(): Promise<DevDb> {
   if (usingPostgres()) return postgres().load();

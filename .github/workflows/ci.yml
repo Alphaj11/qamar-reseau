@@ -80,6 +80,7 @@ jobs:
           STRIPE_PRICE_ID_YEARLY=price_dev_yearly
           STRIPE_WEBHOOK_SECRET=whsec_dev_local_test
           CRON_SECRET=cron_dev_local_test
+          SEED_DEMO=1
           ENV
       - name: Build de production
         run: npx next build
