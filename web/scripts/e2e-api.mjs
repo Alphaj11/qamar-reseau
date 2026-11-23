@@ -33,11 +33,68 @@ const api = async (p, { token, method = "GET", body, headers = {} } = {}) => {
 const login = async (email) => (await (await api("/api/staff/login", { method: "POST", body: { email, pin: "1234" } })).json()).token;
 
 // Inscription d'un client de test (via la page publique) → on lit sa carte dans la base de dev
-const db = () => JSON.parse(readFileSync(path.resolve(".data/dev-db.json"), "utf8"));
+// Données de test : lues et écrites dans la même base que le serveur.
+// DATABASE_URL défini (comme dans .env.local) → Postgres ; sinon fichier .data/dev-db.json.
+const DATABASE_URL = process.env.DATABASE_URL ?? readEnvLocal().DATABASE_URL;
+const store = DATABASE_URL ? await postgresTestStore(DATABASE_URL) : undefined;
+const db = async () => (store ? store.read() : JSON.parse(readFileSync(path.resolve(".data/dev-db.json"), "utf8")));
+const saveDb = async (d) => (store ? store.write(d) : writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2)));
+
+function readEnvLocal() {
+  try {
+    return Object.fromEntries(
+      readFileSync(path.resolve(".env.local"), "utf8")
+        .split(/\r?\n/)
+        .filter((l) => /^[A-Z_]+=/.test(l))
+        .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+async function postgresTestStore(url) {
+  const { default: pg } = await import("pg");
+  const schema = await import("../src/lib/db-schema.ts");
+  const pool = new pg.Pool({ connectionString: url, max: 2 });
+  process.on("beforeExit", () => void pool.end());
+  return {
+    read: () => schema.readAll(pool),
+    // Même mécanique que le serveur : verrou d'écriture, puis seulement les lignes qui changent
+    async write(next) {
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        await client.query("select pg_advisory_xact_lock(7243002)");
+        await schema.writeDiff(client, await schema.readAll(client), next);
+        await client.query("commit");
+      } catch (e) {
+        await client.query("rollback");
+        throw e;
+      } finally {
+        client.release();
+      }
+    },
+  };
+}
 
 const owner = await login("cafe@demo.test");
 const vendeur = await login("vendeur@demo.test");
-let card = db().cards.find((c) => c.programId === "prog-cafe");
+// (les cartes fabriquées par les autres étapes ont un faux jeton court : on les écarte)
+const realCafeCard = (d) => d.cards.find((c) => c.programId === "prog-cafe" && c.authToken.length >= 16);
+let card = realCafeCard(await db());
+if (!card) {
+  // Base neuve (CI, Postgres tout juste créé) : on inscrit une cliente de test, comme le ferait /c/cafe-demo
+  const d = await db();
+  const now = new Date().toISOString();
+  d.customers.push({ id: "cust-e2e", merchantId: "merchant-demo", firstName: "Test", email: "test@e2e.invalid", marketingConsent: true, marketingConsentAt: now, createdAt: now });
+  d.cards.push({
+    id: "card-e2e", programId: "prog-cafe", customerId: "cust-e2e", serial: "E2E" + crypto.randomBytes(6).toString("hex"),
+    authToken: crypto.randomBytes(24).toString("hex"), stamps: 1, points: 0, rewardsAvailable: 0, rewardsRedeemed: 0, createdAt: now, updatedAt: now,
+  });
+  await saveDb(d);
+  card = realCafeCard(await db());
+}
 assert.ok(card, "il faut au moins une carte café (inscrire un client sur /c/cafe-demo)");
 const auth = { Authorization: `ApplePass ${card.authToken}` };
 
@@ -200,6 +257,44 @@ await step("Export CSV des clients (patron uniquement)", async () => {
   assert.equal((await api("/api/staff/export", { token: vendeur })).status, 403);
 });
 
+await step("Export Excel, PDF, CSV des passages et lien à usage unique", async () => {
+  const xlsx = await api("/api/staff/export?format=xlsx&days=30", { token: owner });
+  assert.equal(xlsx.status, 200);
+  assert.ok(xlsx.headers.get("content-type").includes("spreadsheetml"));
+  assert.equal(Buffer.from(await xlsx.arrayBuffer()).subarray(0, 2).toString(), "PK"); // fichier zip (format Excel)
+  const pdf = await api("/api/staff/export?format=pdf&days=90", { token: owner });
+  assert.equal(pdf.status, 200);
+  assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString(), "%PDF-");
+  const passages = await api("/api/staff/export?format=csv&data=passages", { token: owner });
+  assert.ok(Buffer.from(await passages.arrayBuffer()).subarray(3).toString("utf8").startsWith("Date;Heure;Client"));
+  assert.equal((await api("/api/staff/export?format=doc", { token: owner })).status, 400);
+  assert.equal((await api("/api/staff/export?format=pdf", { token: vendeur })).status, 403);
+  // Lien pour le téléphone : marche une fois, puis expire
+  const { path } = await (await api("/api/staff/export/link?format=pdf", { token: owner })).json();
+  assert.ok(path.startsWith("/api/staff/export?") && path.includes("t="));
+  assert.equal((await api(path)).status, 200);
+  assert.equal((await api(path)).status, 401);
+  assert.equal((await api("/api/staff/export/link?format=pdf", { token: vendeur })).status, 403);
+});
+
+await step("Studio : photo de bannière et couleur des petits titres", async () => {
+  // Petite image PNG générée à la volée (une photo réelle passe par le même chemin)
+  const png = execFileSync("node", ["-e", "require('sharp')({create:{width:400,height:200,channels:3,background:'#336699'}}).png().toBuffer().then(b=>process.stdout.write(b.toString('base64')))"], { cwd: process.cwd() }).toString();
+  const up = await api("/api/staff/program/banner", { token: owner, method: "POST", body: { image: png } });
+  assert.equal(up.status, 200);
+  assert.ok((await up.json()).settings.banner.startsWith("data:image/jpeg;base64,"));
+  const strip = await api("/api/strip/cafe-demo?value=3&format=apple");
+  assert.equal(strip.headers.get("content-type"), "image/png");
+  assert.equal((await api("/api/staff/program/banner", { token: owner, method: "POST", body: { image: "x".repeat(200) } })).status, 400);
+  assert.equal((await api("/api/staff/program/banner", { token: vendeur, method: "POST", body: { image: png } })).status, 403);
+  assert.equal((await api("/api/staff/program/banner", { token: owner, method: "DELETE" })).status, 200);
+  const before = (await (await api("/api/staff/program", { token: owner })).json()).settings;
+  const lc = await api("/api/staff/program", { token: owner, method: "PATCH", body: { labelColor: "#e0a458" } });
+  assert.equal((await lc.json()).settings.labelColor, "#e0a458");
+  assert.equal((await api("/api/staff/program", { token: owner, method: "PATCH", body: { labelColor: "orange" } })).status, 400);
+  await api("/api/staff/program", { token: owner, method: "PATCH", body: { labelColor: before.labelColor ?? before.fgColor } });
+});
+
 await step("Équipe : ajout d'un vendeur, connexion, retrait (session coupée)", async () => {
   const email = `vendeur-${Date.now()}@demo.test`;
   const added = await api("/api/staff/team", { token: owner, method: "POST", body: { name: "Vendeur test", email, pin: "4321" } });
@@ -224,20 +319,20 @@ await step("Relance : réglages, droits, envoi quotidien unique, retour mesuré"
 
   // Nettoyage d'un essai précédent interrompu
   {
-    const d0 = db();
+    const d0 = (await db());
     const left = new Set(d0.cards.filter((c) => c.id.startsWith("wb-")).map((c) => c.id));
     d0.cards = d0.cards.filter((c) => !left.has(c.id));
     d0.customers = d0.customers.filter((c) => !c.id.startsWith("cust-wb-"));
     d0.transactions = d0.transactions.filter((t) => !left.has(t.cardId));
     d0.winbacks = (d0.winbacks ?? []).filter((w) => !left.has(w.cardId));
-    writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d0, null, 2));
+    await saveDb(d0);
   }
   // Deux clients absents depuis 40 jours : l'un accepte les offres, l'autre non
   const old = new Date(Date.now() - 40 * 86400_000).toISOString();
   const stamp = Date.now();
   const ids = { yes: `wb-yes-${stamp}`, no: `wb-no-${stamp}` };
   {
-    const d = db();
+    const d = (await db());
     const prog = d.programs.find((p) => p.slug === "cafe-demo");
     for (const [key, consent] of [["yes", true], ["no", false]]) {
       d.customers.push({ id: `cust-${ids[key]}`, merchantId: prog.merchantId, firstName: "Absent", marketingConsent: consent, createdAt: old });
@@ -246,7 +341,7 @@ await step("Relance : réglages, droits, envoi quotidien unique, retour mesuré"
         stamps: 1, points: 0, rewardsAvailable: 0, rewardsRedeemed: 0, createdAt: old, updatedAt: old,
       });
     }
-    writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+    await saveDb(d);
   }
 
   const on = await (await api("/api/staff/winback", { token: owner, method: "PATCH", body: { enabled: true, days: 30, message: "On vous attend !" } })).json();
@@ -255,45 +350,45 @@ await step("Relance : réglages, droits, envoi quotidien unique, retour mesuré"
 
   // Les 3 messages du test précédent bloquent la relance aujourd'hui (limite des téléphones)
   assert.equal((await cron("cron_dev_local_test")).status, 200);
-  assert.equal(db().winbacks.filter((w) => w.cardId === ids.yes).length, 0);
+  assert.equal((await db()).winbacks.filter((w) => w.cardId === ids.yes).length, 0);
   {
-    const d2 = db();
+    const d2 = (await db());
     const yesterday = new Date(Date.now() - 2 * 86400_000).toISOString();
     for (const c of d2.campaigns) c.createdAt = c.createdAt > yesterday ? yesterday : c.createdAt;
-    writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d2, null, 2));
+    await saveDb(d2);
   }
 
   assert.equal((await cron()).status, 401);
   assert.equal((await cron("mauvais")).status, 401);
   assert.equal((await cron("cron_dev_local_test")).status, 200);
-  let d = db();
+  let d = (await db());
   assert.equal(d.winbacks.filter((w) => w.cardId === ids.yes).length, 1);
   assert.equal(d.winbacks.filter((w) => w.cardId === ids.no).length, 0, "sans consentement : jamais relancé");
   assert.equal(d.cards.find((c) => c.id === ids.yes).lastMessage, "On vous attend !");
 
   // Deuxième passage : pas de nouvelle relance tant que le client n'est pas revenu
   await cron("cron_dev_local_test");
-  assert.equal(db().winbacks.filter((w) => w.cardId === ids.yes).length, 1);
+  assert.equal((await db()).winbacks.filter((w) => w.cardId === ids.yes).length, 1);
 
   // Le client revient : le retour est compté
-  d = db();
+  d = (await db());
   d.transactions.push({
     id: `tx-${ids.yes}`, cardId: ids.yes, staffId: "staff-cafe", kind: "stamp", amount: 1,
     clientOpId: `op-${ids.yes}`, occurredAt: new Date().toISOString(), createdAt: new Date().toISOString(),
   });
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
   const after = await (await api("/api/staff/winback", { token: owner })).json();
   assert.ok(after.last90Days.returned >= 1);
 
   // Remise en état
   await api("/api/staff/winback", { token: owner, method: "PATCH", body: { enabled: false } });
-  d = db();
+  d = (await db());
   const gone = new Set(Object.values(ids));
   d.cards = d.cards.filter((c) => !gone.has(c.id));
   d.customers = d.customers.filter((c) => !gone.has(c.id.replace("cust-", "")));
   d.transactions = d.transactions.filter((t) => !gone.has(t.cardId));
   d.winbacks = d.winbacks.filter((w) => !gone.has(w.cardId));
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
 });
 
 // ——— Demande d'avis Google ———
@@ -311,7 +406,7 @@ await step("Avis Google : lien vérifié, invitation à la N-ième visite, une s
   const ids = { yes: `rv-yes-${stamp}`, no: `rv-no-${stamp}` };
   const serial = (k) => `RV${k.toUpperCase()}${stamp}`;
   {
-    const d = db();
+    const d = (await db());
     d.cards = d.cards.filter((c) => !c.id.startsWith("rv-"));
     d.customers = d.customers.filter((c) => !c.id.startsWith("cust-rv-"));
     const prog = d.programs.find((p) => p.slug === "cafe-demo");
@@ -323,7 +418,7 @@ await step("Avis Google : lien vérifié, invitation à la N-ième visite, une s
         stamps: 0, points: 0, rewardsAvailable: 0, rewardsRedeemed: 0, createdAt: now, updatedAt: now,
       });
     }
-    writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+    await saveDb(d);
   }
 
   const on = await patch({ enabled: true, url: "https://g.page/r/e2e-test/review", afterVisits: 2, message: "Un avis ?" });
@@ -338,32 +433,32 @@ await step("Avis Google : lien vérifié, invitation à la N-ième visite, une s
     });
     assert.equal((await res.json()).results[0].status, "applied");
   };
-  const cardOf = (k) => db().cards.find((c) => c.id === ids[k]);
+  const cardOf = async (k) => (await db()).cards.find((c) => c.id === ids[k]);
 
   await visit("yes");
-  assert.equal(cardOf("yes").reviewAskedAt, undefined, "pas avant la 2e visite");
+  assert.equal((await cardOf("yes")).reviewAskedAt, undefined, "pas avant la 2e visite");
   await visit("yes");
-  const asked = cardOf("yes").reviewAskedAt;
+  const asked = (await cardOf("yes")).reviewAskedAt;
   assert.ok(asked);
-  assert.equal(cardOf("yes").lastMessage, "Un avis ?");
+  assert.equal((await cardOf("yes")).lastMessage, "Un avis ?");
   await visit("yes");
-  assert.equal(cardOf("yes").reviewAskedAt, asked, "une seule invitation");
+  assert.equal((await cardOf("yes")).reviewAskedAt, asked, "une seule invitation");
 
   await visit("no");
   await visit("no");
-  assert.equal(cardOf("no").reviewAskedAt, undefined, "sans consentement : pas d'invitation");
+  assert.equal((await cardOf("no")).reviewAskedAt, undefined, "sans consentement : pas d'invitation");
 
   const overview = await (await api("/api/staff/review", { token: owner })).json();
   assert.ok(overview.asked >= 1 && overview.askedLast30Days >= 1);
 
   // Remise en état
   assert.equal((await patch({ enabled: false })).status, 200);
-  const d = db();
+  const d = (await db());
   const gone = new Set(Object.values(ids));
   d.cards = d.cards.filter((c) => !gone.has(c.id));
   d.customers = d.customers.filter((c) => !gone.has(c.id.replace("cust-", "")));
   d.transactions = d.transactions.filter((t) => !gone.has(t.cardId));
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
 });
 
 // ——— Offre d'anniversaire ———
@@ -384,7 +479,7 @@ await step("Anniversaire : réglages, question à l'inscription, cadeau du jour 
   const stamp = Date.now();
   const ids = { today: `bd-today-${stamp}`, later: `bd-later-${stamp}` };
   {
-    const d = db();
+    const d = (await db());
     const prog = d.programs.find((p) => p.slug === "cafe-demo");
     const now = new Date().toISOString();
     const birthdays = { today: paris(Date.now()), later: paris(Date.now() + 5 * 86400_000) };
@@ -395,31 +490,31 @@ await step("Anniversaire : réglages, question à l'inscription, cadeau du jour 
         stamps: 0, points: 0, rewardsAvailable: 0, rewardsRedeemed: 0, createdAt: now, updatedAt: now,
       });
     }
-    writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+    await saveDb(d);
   }
 
   const res = await cron();
   assert.equal(res.status, 200);
   assert.ok((await res.json()).birthdays >= 1);
-  const cardOf = (k) => db().cards.find((c) => c.id === ids[k]);
-  assert.equal(cardOf("today").rewardsAvailable, 1);
-  assert.equal(cardOf("today").lastMessage, "Bon anniversaire !");
-  assert.equal(cardOf("today").birthdayYear, new Date().getFullYear());
-  assert.equal(cardOf("later").rewardsAvailable, 0, "pas avant le jour J");
+  const cardOf = async (k) => (await db()).cards.find((c) => c.id === ids[k]);
+  assert.equal((await cardOf("today")).rewardsAvailable, 1);
+  assert.equal((await cardOf("today")).lastMessage, "Bon anniversaire !");
+  assert.equal((await cardOf("today")).birthdayYear, new Date().getFullYear());
+  assert.equal((await cardOf("later")).rewardsAvailable, 0, "pas avant le jour J");
 
   await cron();
-  assert.equal(cardOf("today").rewardsAvailable, 1, "un seul cadeau par an");
+  assert.equal((await cardOf("today")).rewardsAvailable, 1, "un seul cadeau par an");
 
   const overview = await (await api("/api/staff/birthday", { token: owner })).json();
   assert.ok(overview.known >= 2 && overview.celebratedThisYear >= 1);
 
   // Remise en état
   assert.equal((await patch({ enabled: false })).status, 200);
-  const d = db();
+  const d = (await db());
   const gone = new Set(Object.values(ids));
   d.cards = d.cards.filter((c) => !gone.has(c.id));
   d.customers = d.customers.filter((c) => !gone.has(c.id.replace("cust-", "")));
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
 });
 
 // ——— Abonnement : commerce de test créé directement dans la base de dev ———
@@ -431,7 +526,7 @@ const hashPin = (pin) => {
 const now = new Date().toISOString();
 const m = { id: `merchant-e2e-${Date.now()}`, email: `e2e-${Date.now()}@demo.test`, slug: `e2e-${Date.now()}` };
 {
-  const d = db();
+  const d = (await db());
   d.merchants.push({ id: m.id, name: "Commerce E2E", createdAt: now, subscription: { status: "pending", updatedAt: now } });
   d.programs.push({
     id: `prog-${m.id}`, merchantId: m.id, slug: m.slug, type: "stamps", name: "Carte", merchantName: "Commerce E2E",
@@ -444,7 +539,7 @@ const m = { id: `merchant-e2e-${Date.now()}`, email: `e2e-${Date.now()}@demo.tes
     id: `card-${m.id}`, programId: `prog-${m.id}`, customerId: `cust-${m.id}`, serial: `E2E${Date.now()}`, authToken: "x",
     stamps: 0, points: 0, rewardsAvailable: 0, rewardsRedeemed: 0, createdAt: now, updatedAt: now,
   });
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
 }
 const sign = (payload, secret = "whsec_dev_local_test") => {
   const t = Math.floor(Date.now() / 1000);
@@ -500,7 +595,7 @@ await step("Essai gratuit et formule annuelle : page d'offre, essai Stripe, ordr
   const email = `trial-${Date.now()}@demo.test`;
   const now = new Date().toISOString();
   {
-    const d = db();
+    const d = (await db());
     d.merchants.push({ id, name: "Essai E2E", createdAt: now, subscription: { status: "pending", plan: "yearly", updatedAt: now } });
     d.programs.push({
       id: `prog-${id}`, merchantId: id, slug: `trial-${Date.now()}`, type: "stamps", name: "Carte", merchantName: "Essai E2E",
@@ -508,7 +603,7 @@ await step("Essai gratuit et formule annuelle : page d'offre, essai Stripe, ordr
       bgColor: "#000000", fgColor: "#ffffff", accentColor: "#ff9900", stampIcon: "star", locations: [],
     });
     d.staff.push({ id: `staff-${id}`, role: "owner", merchantId: id, name: "Essai", email, pinHash: hashPin("123456") });
-    writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+    await saveDb(d);
   }
   const token = (await (await api("/api/staff/login", { method: "POST", body: { email, pin: "123456" } })).json()).token;
   const pending = await (await api("/api/staff/account", { token })).json();
@@ -541,17 +636,17 @@ await step("Essai gratuit et formule annuelle : page d'offre, essai Stripe, ordr
   assert.equal(after.subscription.status, "active");
   assert.equal(after.subscription.trialEnd, undefined);
 
-  const d = db();
+  const d = (await db());
   d.merchants = d.merchants.filter((x) => x.id !== id);
   d.programs = d.programs.filter((x) => x.merchantId !== id);
   d.staff = d.staff.filter((x) => x.merchantId !== id);
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
 });
 
 await step("RGPD : effacement d'un client et de ses données", async () => {
-  const serial = db().cards.find((c) => c.id === `card-${m.id}`).serial;
+  const serial = (await db()).cards.find((c) => c.id === `card-${m.id}`).serial;
   assert.equal((await api(`/api/staff/customers/${serial}`, { token: mToken, method: "DELETE" })).status, 200);
-  const d = db();
+  const d = (await db());
   assert.ok(!d.cards.some((c) => c.id === `card-${m.id}`));
   assert.ok(!d.customers.some((c) => c.id === `cust-${m.id}`));
   assert.equal((await api(`/api/staff/customers/${serial}`, { token: mToken, method: "DELETE" })).status, 404);
@@ -567,11 +662,11 @@ await step("Connexion : blocage après 5 codes faux", async () => {
 
 // Nettoyage du commerce de test
 {
-  const d = db();
+  const d = (await db());
   d.merchants = d.merchants.filter((x) => x.id !== m.id);
   d.programs = d.programs.filter((x) => x.merchantId !== m.id);
   d.staff = d.staff.filter((x) => x.merchantId !== m.id);
-  writeFileSync(path.resolve(".data/dev-db.json"), JSON.stringify(d, null, 2));
+  await saveDb(d);
 }
 
 await step("Mode démo : boutique fictive consultable, rien n'est modifiable", async () => {

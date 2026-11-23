@@ -22,6 +22,10 @@ export interface Program {
   logoUrl?: string;
   /** Logo du commerce (PNG 256 × 256 en data URL), remplace l'initiale sur la carte. */
   logo?: string;
+  /** Photo de fond de la bannière (JPEG 1125 × 432 en data URL), sous les tampons. */
+  banner?: string;
+  /** Couleur des petits titres de la carte (« Récompense », « Membre »…). Par défaut : couleur du texte. */
+  labelColor?: string;
   stampIcon: StampIcon;
   /** Modèle de métier choisi dans le studio (boulangerie, pizzeria…). */
   template?: string;

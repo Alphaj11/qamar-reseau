@@ -44,6 +44,8 @@ export interface StaffProgramView {
   stampIcon: Program["stampIcon"];
   pattern?: boolean;
   logo?: string;
+  banner?: string;
+  labelColor?: string;
 }
 
 export interface SyncOp {
@@ -72,8 +74,8 @@ function cardView(db: DevDb, card: Card): StaffCardView {
 }
 
 function programView(p: Program): StaffProgramView {
-  const { id, name, merchantName, type, rewardLabel, stampsRequired, pointsRequired, pointsPerEuro, bgColor, fgColor, accentColor, stampIcon, pattern, logo } = p;
-  return { id, name, merchantName, type, rewardLabel, stampsRequired, pointsRequired, pointsPerEuro, bgColor, fgColor, accentColor, stampIcon, pattern, logo };
+  const { id, name, merchantName, type, rewardLabel, stampsRequired, pointsRequired, pointsPerEuro, bgColor, fgColor, accentColor, stampIcon, pattern, logo, banner, labelColor } = p;
+  return { id, name, merchantName, type, rewardLabel, stampsRequired, pointsRequired, pointsPerEuro, bgColor, fgColor, accentColor, stampIcon, pattern, logo, banner, labelColor };
 }
 
 /**

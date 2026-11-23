@@ -1,0 +1,94 @@
+# Vérifications automatiques à chaque modification (push et pull request).
+# - Appli commerçant (mobile) : types, lint, tests de la logique hors ligne.
+# - Serveur (web) : types, lint, build de production, puis tous les tests de bout en bout de l'API
+#   sur une vraie base Postgres (même schéma que Supabase : supabase/migrations).
+name: Vérifications
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile:
+    name: Appli commerçant
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Types
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx expo lint
+      - name: Tests (mode hors ligne)
+        run: npm test
+
+  web:
+    name: Serveur et API (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: qamar
+          POSTGRES_PASSWORD: qamar
+          POSTGRES_DB: qamar
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U qamar" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://qamar:qamar@localhost:5432/qamar
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Types
+        # PageProps / LayoutProps sont générés par Next.js à partir des routes
+        run: |
+          npx next typegen
+          npx tsc --noEmit
+      - name: Lint
+        run: npx eslint src scripts
+      - name: Schéma de la base
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../supabase/migrations/0001_init.sql
+      - name: Configuration de test (faux certificats Wallet, fausses clés Stripe)
+        run: |
+          bash scripts/dev-wallet-certs.sh
+          cat >> .env.local <<'ENV'
+          DATABASE_URL=postgresql://qamar:qamar@localhost:5432/qamar
+          STRIPE_SECRET_KEY=sk_test_dev_local
+          STRIPE_PRICE_ID=price_dev_monthly
+          STRIPE_PRICE_ID_YEARLY=price_dev_yearly
+          STRIPE_WEBHOOK_SECRET=whsec_dev_local_test
+          CRON_SECRET=cron_dev_local_test
+          SEED_DEMO=1
+          ENV
+      - name: Build de production
+        run: npx next build
+      - name: Tests de bout en bout de l'API
+        run: |
+          npx next start -p 3000 > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/health && break; sleep 1; done
+          node scripts/e2e-api.mjs
+      - name: Journal du serveur (en cas d'échec)
+        if: failure()
+        run: tail -n 200 server.log

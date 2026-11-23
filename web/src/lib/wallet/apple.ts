@@ -26,7 +26,7 @@ export function applePassJson(card: Card, program: Program, customer: Customer, 
     logoText: program.merchantName,
     backgroundColor: hexToRgb(program.bgColor),
     foregroundColor: hexToRgb(program.fgColor),
-    labelColor: hexToRgb(program.fgColor),
+    labelColor: hexToRgb(program.labelColor ?? program.fgColor),
     sharingProhibited: true,
     barcodes: [{ format: "PKBarcodeFormatQR", message: card.serial, messageEncoding: "iso-8859-1", altText: card.serial }],
     // Boutiques : la carte apparaît sur l'écran verrouillé à proximité (iPhone décide du rayon)

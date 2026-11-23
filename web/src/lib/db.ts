@@ -1,10 +1,11 @@
-// Stockage local de développement (fichier JSON) en attendant le compte Supabase.
-// Toutes les pages passent par ces fonctions : au sprint suivant, on remplace
-// leur contenu par des requêtes Supabase sans toucher aux pages.
+// Accès aux données. Toutes les pages passent par load() et mutate().
+// - DATABASE_URL défini → Postgres (Supabase en local ou en ligne), voir db-postgres.ts.
+// - Sinon → fichier JSON local (web/.data/dev-db.json), pratique pour bricoler sans base.
 import "server-only";
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
+import { postgresStore } from "./db-postgres";
 import type { AppleRegistration, Campaign, Winback, Card, Customer, Merchant, Program, Staff, StaffSession, Transaction } from "./types";
 
 export interface DevDb {
@@ -98,7 +99,26 @@ const SEED: DevDb = {
 
 let writeQueue: Promise<unknown> = Promise.resolve();
 
+/** Base Postgres si DATABASE_URL est configuré, sinon fichier JSON. */
+export const usingPostgres = () => !!process.env.DATABASE_URL;
+let pg: ReturnType<typeof postgresStore> | undefined;
+// En production, une base vide reste vide : pas de comptes de démo (PIN 1234) sur le vrai service.
+// SEED_DEMO=1 force les données de démo (tests automatiques sur un build de production).
+const seedDemo = () => process.env.NODE_ENV !== "production" || process.env.SEED_DEMO === "1";
+const postgres = () => (pg ??= postgresStore(seedDemo() ? SEED : undefined));
+
 export async function load(): Promise<DevDb> {
+  if (usingPostgres()) return postgres().load();
+  return loadJson();
+}
+
+/** La base répond-elle ? (pour /api/health, sans tout relire). */
+export async function ping() {
+  if (usingPostgres()) return postgres().ping();
+  await loadJson();
+}
+
+async function loadJson(): Promise<DevDb> {
   try {
     const db = JSON.parse(await fs.readFile(DB_FILE, "utf8")) as DevDb;
     // Fichiers créés avant le sprint 3 : on ajoute les nouvelles tables
@@ -129,8 +149,9 @@ async function save(db: DevDb) {
 
 /** Sérialise les écritures pour éviter qu'elles s'écrasent entre elles. */
 export function mutate<T>(fn: (db: DevDb) => T): Promise<T> {
+  if (usingPostgres()) return postgres().mutate(fn);
   const run = writeQueue.then(async () => {
-    const db = await load();
+    const db = await loadJson();
     const result = fn(db);
     await save(db);
     return result;

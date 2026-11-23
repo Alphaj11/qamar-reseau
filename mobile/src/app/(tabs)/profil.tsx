@@ -1,7 +1,7 @@
 // Onglet Profil : compte, abonnement, équipe, données des clients, sécurité, synchronisation.
 import Constants from "expo-constants";
 import { useState } from "react";
-import { Linking, Platform, Share, View } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import { Text } from "@/ui/text";
 import { api } from "@/lib/api";
 import { BRAND } from "@/lib/brand";
@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, plural } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import type { Subscription, TeamMember } from "@/lib/types";
 import { toRemoteError, useRemote } from "@/lib/useRemote";
+import { ExportPanel } from "@/features/export/ExportPanel";
 import { Badge, Button, ErrorMessage, Field, Loading, Notice, Row, ScrollScreen, Section } from "@/ui/components";
 import { confirm } from "@/ui/confirm";
 import { space, usePalette } from "@/ui/theme";
@@ -181,43 +182,14 @@ function TeamSection() {
 
 function DataSection() {
   const p = usePalette();
-  const { session } = useStore();
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string }>();
-
-  async function exportCsv() {
-    if (!session) return;
-    setBusy(true);
-    setNotice(undefined);
-    try {
-      const csv = await api.exportCustomers(session.token);
-      if (Platform.OS === "web") {
-        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "clients.csv";
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        await Share.share({ title: "clients.csv", message: csv });
-      }
-      setNotice({ tone: "ok", text: "Export prêt." });
-    } catch (e) {
-      setNotice({ tone: "error", text: toRemoteError(e).message });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <Section title="Données des clients">
       <View style={{ padding: space.md, gap: space.md }}>
         <Text style={{ color: p.text, lineHeight: 20 }}>
-          Vos clients vous appartiennent. Exportez-les quand vous voulez (tableur Excel). Pour effacer un client à sa demande, ouvrez sa
-          fiche.
+          Vos clients vous appartiennent. Exportez-les quand vous voulez, en Excel, en PDF ou en CSV. Pour effacer un client à sa demande,
+          ouvrez sa fiche.
         </Text>
-        {notice && <Notice tone={notice.tone} text={notice.text} />}
-        <Button label="Exporter mes clients (CSV)" variant="secondary" icon="download-outline" onPress={() => void exportCsv()} loading={busy} />
+        <ExportPanel />
       </View>
     </Section>
   );

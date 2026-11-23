@@ -21,6 +21,8 @@ export interface ProgramView {
   stampIcon?: StampIcon;
   pattern?: boolean;
   logo?: string;
+  banner?: string;
+  labelColor?: string;
 }
 
 export interface CardView {
@@ -232,6 +234,10 @@ export interface ProgramSettings {
   pattern?: boolean;
   /** Logo du commerce (data URL PNG), modifié par une route à part. */
   logo?: string;
+  /** Photo de fond de la bannière (data URL JPEG), modifiée par une route à part. */
+  banner?: string;
+  /** Couleur des petits titres (« Récompense »…). Absente : couleur du texte. */
+  labelColor?: string;
   terms?: string;
   locations: StoreLocation[];
   averageBasket?: number;

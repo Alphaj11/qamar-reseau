@@ -22,17 +22,22 @@ export interface CardPreviewProps {
   stampIcon?: StampIcon;
   pattern?: boolean;
   logo?: string;
+  /** Photo de fond de la bannière (sous les tampons). */
+  banner?: string;
+  /** Couleur des petits titres ; par défaut la couleur du texte, atténuée. */
+  labelColor?: string;
 }
 
 const icon = (name: StampIcon | undefined) => `<svg viewBox="0 0 24 24">${STAMP_ICONS[isStampIcon(name) ? name : "star"].svg}</svg>`;
 
 export function CardPreview(props: CardPreviewProps) {
-  const { merchantName, title, type, value, goal, rewardLabel, bgColor, fgColor, accentColor, footer, stampIcon, pattern, logo } = props;
+  const { merchantName, title, type, value, goal, rewardLabel, bgColor, fgColor, accentColor, footer, stampIcon, pattern, logo, banner, labelColor } = props;
+  const label = labelColor ? { color: labelColor, opacity: 1 } : { color: fgColor, opacity: 0.65 };
   const safeGoal = Math.max(1, goal);
   const count = Math.min(safeGoal, 30);
   return (
     <Animated.View entering={FadeIn.duration(400)} style={[styles.card, { backgroundColor: bgColor }]}>
-      {pattern && isStampIcon(stampIcon) ? (
+      {pattern && !banner && isStampIcon(stampIcon) ? (
         <SvgXml
           xml={`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 380" preserveAspectRatio="xMidYMid slice">${patternSvg(stampIcon, 600, 380, fgColor, 0.08)}</svg>`}
           width="100%"
@@ -54,7 +59,7 @@ export function CardPreview(props: CardPreviewProps) {
           {merchantName}
         </Text>
         <View style={{ alignItems: "flex-end" }}>
-          <Text style={{ color: fgColor, opacity: 0.65, fontSize: 9.5, fontFamily: "mono", letterSpacing: 1, textTransform: "uppercase" }}>
+          <Text style={[{ fontSize: 9.5, fontFamily: "mono", letterSpacing: 1, textTransform: "uppercase" }, label]}>
             {type === "stamps" ? "Tampons" : "Points"}
           </Text>
           <Text style={{ color: fgColor, fontSize: 17, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
@@ -66,6 +71,13 @@ export function CardPreview(props: CardPreviewProps) {
 
       <Text style={{ color: fgColor, fontSize: 24, fontWeight: "700", letterSpacing: -0.6 }}>{title}</Text>
 
+      <View style={banner ? styles.bannerBox : undefined}>
+      {banner ? (
+        <>
+          <Image source={{ uri: banner }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: bgColor, opacity: 0.5 }]} />
+        </>
+      ) : null}
       {type === "stamps" ? (
         <View style={styles.stamps} accessibilityLabel={`${value} tampons sur ${safeGoal}`}>
           {Array.from({ length: count }, (_, i) => {
@@ -91,10 +103,11 @@ export function CardPreview(props: CardPreviewProps) {
           </View>
         </View>
       )}
+      </View>
 
       <View style={[styles.foot, { borderTopColor: fgColor + "22" }]}>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: fgColor, opacity: 0.65, fontSize: 9.5, fontFamily: "mono", letterSpacing: 1, textTransform: "uppercase" }}>Récompense</Text>
+          <Text style={[{ fontSize: 9.5, fontFamily: "mono", letterSpacing: 1, textTransform: "uppercase" }, label]}>Récompense</Text>
           <Text style={{ color: fgColor, fontSize: 15, fontWeight: "500" }}>{rewardLabel}</Text>
         </View>
       </View>
@@ -119,6 +132,7 @@ const styles = StyleSheet.create({
   logo: { width: 34, height: 34, borderRadius: 17, overflow: "hidden" },
   stamps: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   stamp: { width: 34, height: 34, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  bannerBox: { borderRadius: 14, overflow: "hidden", padding: space.md, marginHorizontal: -6 },
   progress: { height: 12, borderRadius: 6, overflow: "hidden" },
   progressFill: { height: 12, borderRadius: 6 },
   foot: { flexDirection: "row", borderTopWidth: 1, paddingTop: space.md },
