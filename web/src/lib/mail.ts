@@ -1,7 +1,8 @@
 // Envoi d'e-mails (pour l'instant : le lien « Code oublié »), par l'API HTTP de Resend.
 // Variables : RESEND_API_KEY (clé secrète, côté serveur seulement) et MAIL_FROM
 // (ex. « Qamar <no-reply@qamar-conception.fr> », domaine vérifié chez Resend : SPF + DKIM chez OVH).
-// Sans configuration : en développement le message est écrit dans le terminal, en production il n'est pas envoyé.
+// Sans configuration : en développement (ou avec MAIL_DRY_RUN=1) le message est écrit dans le terminal,
+// en production il n'est pas envoyé.
 import "server-only";
 
 export interface Mail {
@@ -18,7 +19,8 @@ export async function sendMail(mail: Mail): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.MAIL_FROM;
   if (!key || !from) {
-    if (process.env.NODE_ENV !== "production") {
+    // MAIL_DRY_RUN=1 : tests automatiques sur un build de production, rien n'est envoyé
+    if (process.env.NODE_ENV !== "production" || process.env.MAIL_DRY_RUN === "1") {
       console.info(`[e-mail de développement] À : ${mail.to}\nObjet : ${mail.subject}\n${mail.text}`);
       return true;
     }

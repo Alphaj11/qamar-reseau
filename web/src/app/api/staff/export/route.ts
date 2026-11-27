@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { buildExport } from "@/lib/export";
 import { takeDownloadToken } from "@/lib/export-links";
-import { json, preflight, withStaff } from "@/lib/http";
+import { CORS, json, preflight, withStaff } from "@/lib/http";
 
 export const OPTIONS = preflight;
 
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       headers: {
         "Content-Type": file.type,
         "Content-Disposition": `attachment; filename="${file.filename}"`,
-        "Access-Control-Allow-Origin": "*",
+        ...CORS,
         "Access-Control-Expose-Headers": "Content-Disposition",
         "Cache-Control": "no-store",
       },

@@ -281,6 +281,9 @@ await step("Connexion : changer la première adresse de X-Forwarded-For ne conto
     blocked = res.status === 429;
   }
   assert.ok(blocked, "toujours pas bloqué après 25 essais avec une fausse adresse différente à chaque fois");
+  // Et une vraie autre adresse n'est pas bloquée pour autant (chaque visiteur a son propre compteur)
+  const other = await api("/api/staff/login", { method: "POST", body: { email: "inconnu@example.com", pin: "123456" }, headers: { "X-Forwarded-For": `10.9.9.9, ${freshIp()}` } });
+  assert.equal(other.status, 401, `une autre adresse est bloquée aussi (${other.status}) : compteur commun à tous`);
 });
 
 await step("Connexion : compte bloqué après 5 codes faux, même avec des adresses différentes", async () => {
@@ -355,6 +358,42 @@ await step("Code oublié : nouveau code enregistré, sessions coupées, lien inu
     await sql("delete from login_failures where email = 'institut@demo.test'");
     await page.close();
   }
+});
+
+await step("Code oublié : demande pour un vrai compte → seule l'empreinte du lien est en base ; une 2e demande ne casse pas le 1er lien", async () => {
+  await sql("insert into staff (id, merchant_id, role, name, email, pin_hash) values ('staff-secu', 'merchant-demo-2', 'staff', 'Secu', 'secu-reset@example.com', $1) on conflict (id) do nothing", [hashPin("135790")]);
+  const page = await browser.newPage({ extraHTTPHeaders: { "X-Forwarded-For": freshIp() } });
+  try {
+    const old = await newToken("staff-secu", 30);
+    await page.goto(BASE + "/code-oublie");
+    await page.fill('input[name="email"]', "secu-reset@example.com");
+    await page.click('button[type="submit"]');
+    await page.waitForSelector("text=Si un compte existe");
+    let rows = [];
+    for (let i = 0; i < 20 && rows.length < 2; i++) {
+      rows = await sql("select token_hash from pin_resets where staff_id = 'staff-secu'");
+      if (rows.length < 2) await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.equal(rows.length, 2, `liens en base : ${rows.length}`);
+    assert.ok(rows.every((r) => /^[0-9a-f]{64}$/.test(r.token_hash)), "lien stocké autrement qu'en empreinte SHA-256");
+    await page.goto(`${BASE}/code-oublie/${old}`);
+    await page.waitForSelector('input[name="pin"]');
+  } finally {
+    await page.close();
+  }
+});
+
+await step("Code oublié : changer son code dans l'appli annule les liens en cours", async () => {
+  const link = await newToken("staff-secu", 30);
+  const session = await login("secu-reset@example.com", "135790");
+  assert.ok(session, "connexion du compte de test impossible");
+  const res = await api("/api/staff/me/pin", { method: "POST", token: session, body: { current: "135790", next: "975310" } });
+  assert.equal(res.status, 200, `changement de code → ${res.status}`);
+  const page = await browser.newPage();
+  await page.goto(`${BASE}/code-oublie/${link}`);
+  await page.waitForSelector("text=Ce lien a expiré ou a déjà servi");
+  await page.close();
+  await sql("delete from staff where id = 'staff-secu'");
 });
 
 await browser.close();

@@ -82,6 +82,7 @@ jobs:
           CRON_SECRET=cron_dev_local_test
           SEED_DEMO=1
           TRUSTED_PROXY_HOPS=0
+          MAIL_DRY_RUN=1
           ENV
       - name: Build de production
         run: npx next build
