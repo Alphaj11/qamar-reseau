@@ -1,4 +1,5 @@
-// Page de démonstration (développement) : les programmes et leur QR d'inscription.
+// Accueil. En production : page publique sans aucune donnée.
+// En développement : liste de démo des programmes et leur QR.
 import { Suspense } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
@@ -10,10 +11,49 @@ import { PageSkeleton } from "@/components/PageSkeleton";
 import { SiteHeader } from "@/components/QamarLogo";
 
 export default function Home() {
+  if (process.env.NODE_ENV === "production") return <Accueil />;
   return (
     <Suspense fallback={<PageSkeleton />}>
       <Demo />
     </Suspense>
+  );
+}
+
+function Accueil() {
+  return (
+    <>
+      <SiteHeader />
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-16">
+        <header className="flex flex-col gap-4">
+          <h1 className="text-4xl font-bold tracking-tight">
+            {BRAND.name}<span className="text-accent">.</span>
+          </h1>
+          <p className="text-lg text-muted">
+            La carte de fidélité de votre commerce, directement dans Apple Wallet et Google Wallet.
+            Vos clients la gardent sur leur téléphone, vous la tamponnez d&apos;un scan.
+          </p>
+        </header>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/inscription"
+            className="btn-qamar"
+          >
+            Créer mon compte commerçant
+          </Link>
+          <a
+            href="https://qamar-conception.fr/"
+            className="inline-flex items-center rounded-2xl border border-line px-5 py-3 font-medium"
+          >
+            Découvrir QAMAR
+          </a>
+        </div>
+        <nav className="flex gap-4 text-sm text-muted">
+          <Link href="/aide" className="underline underline-offset-2">Aide</Link>
+          <Link href="/cgv" className="underline underline-offset-2">CGV</Link>
+          <Link href="/confidentialite" className="underline underline-offset-2">Confidentialité</Link>
+        </nav>
+      </main>
+    </>
   );
 }
 
