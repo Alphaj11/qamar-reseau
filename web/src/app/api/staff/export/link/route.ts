@@ -18,7 +18,7 @@ export function GET(request: Request) {
       const v = src.searchParams.get(k);
       if (v) target.searchParams.set(k, v);
     }
-    target.searchParams.set("t", issueDownloadToken(session));
+    target.searchParams.set("t", await issueDownloadToken(session));
     return json({ path: `${target.pathname}${target.search}` });
   });
 }

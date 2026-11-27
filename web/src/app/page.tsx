@@ -1,4 +1,5 @@
-// Page de démonstration (développement) : les programmes et leur QR d'inscription.
+// Accueil. En production : page publique sans aucune donnée.
+// En développement : liste de démo des programmes et leur QR.
 import { Suspense } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
@@ -8,12 +9,50 @@ import { listPrograms } from "@/lib/db";
 import { WalletCard } from "@/components/WalletCard";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { SiteHeader } from "@/components/QamarLogo";
+import { EtoileFilante } from "@/components/EtoileFilante";
 
 export default function Home() {
+  if (process.env.NODE_ENV === "production") return <Accueil />;
   return (
     <Suspense fallback={<PageSkeleton />}>
       <Demo />
     </Suspense>
+  );
+}
+
+function Accueil() {
+  return (
+    <div className="relative flex min-h-dvh flex-col overflow-hidden">
+      <EtoileFilante />
+      <SiteHeader />
+      <main className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-8 px-4 py-16 text-center">
+        <p className="label-mono text-accent">Fidélité Apple &amp; Google Wallet</p>
+        <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
+          My Qamar Fidelity<span className="text-accent">.</span>
+        </h1>
+        <p className="max-w-2xl text-lg text-muted sm:text-xl">
+          Vos clients reviennent quand ils ne vous oublient pas. Offrez-leur une carte de fidélité
+          qui vit dans leur téléphone, à côté de leur carte bancaire.{" "}
+          <span className="text-foreground">Créez la vôtre en 5 minutes et tamponnez dès aujourd&apos;hui.</span>
+        </p>
+        <div className="flex flex-col items-center gap-3 sm:flex-row">
+          <Link href="/inscription" className="btn-qamar btn-carre">
+            Créer mon compte commerçant
+          </Link>
+          <a
+            href="https://qamar-conception.fr/"
+            className="btn-carre inline-flex items-center justify-center border border-line px-5 py-[0.95rem] font-medium"
+          >
+            Découvrir QAMAR
+          </a>
+        </div>
+        <nav className="flex gap-4 text-sm text-muted">
+          <Link href="/aide" className="underline underline-offset-2">Aide</Link>
+          <Link href="/cgv" className="underline underline-offset-2">CGV</Link>
+          <Link href="/confidentialite" className="underline underline-offset-2">Confidentialité</Link>
+        </nav>
+      </main>
+    </div>
   );
 }
 

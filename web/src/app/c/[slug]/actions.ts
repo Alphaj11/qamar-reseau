@@ -74,7 +74,7 @@ export async function enrollAction(
     return { errors, values };
   }
 
-  const wait = hit(`enroll:${clientIp(await headers())}`, 15, 10 * 60_000);
+  const wait = await hit(`enroll:${clientIp(await headers())}`, 15, 10 * 60_000);
   if (wait) return { errors: { form: tooMany(wait) }, values };
 
   const { birthDay, birthMonth, ...data } = parsed.data;

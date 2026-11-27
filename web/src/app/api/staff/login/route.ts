@@ -10,7 +10,7 @@ export const OPTIONS = preflight;
 
 export async function POST(request: Request) {
   // 20 essais / 15 min par adresse IP : empêche d'essayer un code sur beaucoup de comptes
-  const wait = hit(`login:${clientIp(request.headers)}`, 20, 15 * 60_000);
+  const wait = await hit(`login:${clientIp(request.headers)}`, 20, 15 * 60_000);
   if (wait) return json({ error: tooMany(wait) }, 429);
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return json({ error: "E-mail ou code incorrect" }, 400);

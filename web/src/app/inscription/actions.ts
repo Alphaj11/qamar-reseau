@@ -42,7 +42,7 @@ export async function signupAction(_prev: SignupState, formData: FormData): Prom
     return { errors, values };
   }
 
-  const wait = hit(`signup:${clientIp(await headers())}`, 5, 60 * 60_000);
+  const wait = await hit(`signup:${clientIp(await headers())}`, 5, 60 * 60_000);
   if (wait) return { errors: { form: tooMany(wait) }, values };
 
   let merchantId: string;

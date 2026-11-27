@@ -69,10 +69,10 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 Relancer `npm run dev`. `npx supabase stop` arrête tout ; `npx supabase db reset` remet la base à zéro.
 
 ### Sans Docker
-N'importe quel Postgres 15+ convient : créer une base, puis `psql "$DATABASE_URL" -f supabase/migrations/0001_init.sql`.
+N'importe quel Postgres 15+ convient : créer une base, puis appliquer chaque fichier de `supabase/migrations` dans l'ordre (`psql "$DATABASE_URL" -f supabase/migrations/0001_init.sql`, puis `0002_securite.sql`…).
 
 ### Le jour de la mise en ligne
-Créer le projet sur supabase.com, appliquer la migration (`npx supabase link` puis `npx supabase db push`), et mettre chez l'hébergeur `DATABASE_URL` = l'adresse « Session pooler » donnée par Supabase (Project Settings › Database). Rien d'autre ne change dans le code.
+Créer le projet sur supabase.com, appliquer les migrations (`npx supabase link` puis `npx supabase db push --remote`, à relancer à chaque nouveau fichier dans `supabase/migrations`), et mettre chez l'hébergeur `DATABASE_URL` = l'adresse « Session pooler » donnée par Supabase (Project Settings › Database). Rien d'autre ne change dans le code.
 
 ## Tests automatiques
 À chaque modification envoyée sur GitHub (et sur chaque pull request), `.github/workflows/ci.yml` vérifie :

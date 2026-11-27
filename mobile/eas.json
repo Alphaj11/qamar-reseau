@@ -11,13 +11,13 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REMPLACER-PAR-VOTRE-DOMAINE"
+        "EXPO_PUBLIC_API_URL": "https://app.qamar-conception.fr"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://REMPLACER-PAR-VOTRE-DOMAINE"
+        "EXPO_PUBLIC_API_URL": "https://app.qamar-conception.fr"
       }
     }
   },

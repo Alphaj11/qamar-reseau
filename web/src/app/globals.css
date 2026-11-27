@@ -114,3 +114,31 @@ input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--accent);
 }
+
+/* Accueil : boutons à angles droits. */
+.btn-carre {
+  border-radius: 0;
+}
+
+/* Accueil : étoile filante qui dessine le Q (voir components/EtoileFilante.tsx).
+   Longueur réelle du trajet : environ 2900 unités. */
+.etoile-trainee {
+  stroke-dasharray: 160 3200;
+  animation: etoile-trainee 7s linear infinite;
+}
+.etoile-trace {
+  stroke-dasharray: 2900 2900;
+  animation: etoile-trace 7s linear infinite;
+}
+@keyframes etoile-trainee {
+  0% { stroke-dashoffset: 160; }
+  60%, 100% { stroke-dashoffset: -2900; }
+}
+@keyframes etoile-trace {
+  0% { stroke-dashoffset: 2900; opacity: 0.35; }
+  60% { stroke-dashoffset: 0; opacity: 0.35; }
+  90%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etoile-filante { display: none; }
+}

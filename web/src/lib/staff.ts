@@ -7,11 +7,12 @@ import { maybeAskReview } from "./review";
 import { subscriptionView } from "./subscription";
 import type { Card, Program, Staff, TransactionKind } from "./types";
 import { DEMO_STAFF } from "./showcase";
+import { withSecurityStore } from "./security-store";
 
 const SESSION_DAYS = 30;
 
-// Anti-essais : 5 codes faux de suite → compte bloqué 15 min (mémoire du serveur ;
-// à déplacer en base avec Supabase pour tenir sur plusieurs serveurs).
+// Anti-essais : 5 codes faux de suite → compte bloqué 15 min. En base Postgres quand elle est branchée
+// (table login_failures, partagée entre les serveurs), sinon en mémoire du serveur.
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60_000;
 const failures = new Map<string, { count: number; lockedUntil: number }>();
@@ -115,21 +116,76 @@ export function applyRule(
   return { ok: true };
 }
 
+/**
+ * Réserve un essai de code pour ce compte, AVANT de vérifier le code : chaque essai est compté d'un coup,
+ * même s'il en arrive plusieurs en même temps. Renvoie les millisecondes de blocage restantes si le compte
+ * est bloqué (l'essai est alors refusé), sinon 0. Le 5e essai de suite pose le blocage de 15 min ;
+ * une connexion réussie efface le compteur. Après un blocage expiré, on repart de zéro.
+ */
+function reserveAttempt(key: string): Promise<number> {
+  return withSecurityStore(
+    async (c) => {
+      // Ménage de temps en temps : compteurs oubliés depuis plus d'un jour (adresses inventées, etc.)
+      if (Math.random() < 0.01) {
+        await c.query("delete from login_failures where updated_at < now() - interval '1 day' and (locked_until is null or locked_until < now())");
+      }
+      const { rows } = await c.query<{ count: number }>(
+        `insert into login_failures as f (email, count, updated_at) values ($1, 1, now())
+         on conflict (email) do update set
+           count = case when f.locked_until is not null then 1 else f.count + 1 end,
+           locked_until = null,
+           updated_at = now()
+         where f.locked_until is null or f.locked_until <= now()
+         returning count`,
+        [key],
+      );
+      if (!rows[0]) {
+        // Ligne déjà bloquée : l'essai est refusé sans être compté
+        const locked = await c.query<{ ms: number }>(
+          "select greatest(1, ceil(extract(epoch from (locked_until - now())) * 1000))::int as ms from login_failures where email = $1",
+          [key],
+        );
+        return locked.rows[0]?.ms ?? LOCK_MS;
+      }
+      if (rows[0].count >= MAX_FAILS) {
+        await c.query("update login_failures set count = 0, locked_until = now() + make_interval(secs => $2) where email = $1", [key, LOCK_MS / 1000]);
+      }
+      return 0;
+    },
+    () => {
+      const now = Date.now();
+      const f = failures.get(key);
+      if (f && f.lockedUntil > now) return f.lockedUntil - now;
+      const count = (f && f.lockedUntil === 0 ? f.count : 0) + 1;
+      failures.set(key, count >= MAX_FAILS ? { count: 0, lockedUntil: now + LOCK_MS } : { count, lockedUntil: 0 });
+      return 0;
+    },
+  );
+}
+
+/** Connexion réussie : le compteur repart de zéro. Un souci ici ne doit pas faire échouer la connexion. */
+async function clearFailures(key: string): Promise<void> {
+  try {
+    await withSecurityStore(
+      async (c) => {
+        await c.query("delete from login_failures where email = $1", [key]);
+      },
+      () => {
+        failures.delete(key);
+      },
+    );
+  } catch (e) {
+    console.error("[connexion] compteur d'essais non remis à zéro", e);
+  }
+}
+
 export async function login(email: string, pin: string) {
   const key = email.trim().toLowerCase();
-  const f = failures.get(key);
-  if (f && f.lockedUntil > Date.now()) {
-    throw new LockedError(`Trop d'essais. Réessayez dans ${Math.ceil((f.lockedUntil - Date.now()) / 60_000)} min.`);
-  }
-  return mutate((db) => {
+  const locked = await reserveAttempt(key);
+  if (locked > 0) throw new LockedError(`Trop d'essais. Réessayez dans ${Math.ceil(locked / 60_000)} min.`);
+  const session = await mutate((db) => {
     const staff = db.staff.find((s) => s.email.toLowerCase() === key);
-    if (!staff || !verifyPin(pin, staff.pinHash)) {
-      // Après un blocage expiré, on repart de zéro
-      const count = (f && f.lockedUntil === 0 ? f.count : 0) + 1;
-      failures.set(key, count >= MAX_FAILS ? { count: 0, lockedUntil: Date.now() + LOCK_MS } : { count, lockedUntil: 0 });
-      return undefined;
-    }
-    failures.delete(key);
+    if (!staff || !verifyPin(pin, staff.pinHash)) return undefined;
     const token = crypto.randomBytes(32).toString("base64url");
     db.sessions.push({ token, staffId: staff.id, createdAt: new Date().toISOString() });
     const merchant = db.merchants.find((m) => m.id === staff.merchantId);
@@ -139,6 +195,8 @@ export async function login(email: string, pin: string) {
       subscription: merchant ? subscriptionView(merchant) : undefined,
     };
   });
+  if (session) await clearFailures(key);
+  return session;
 }
 
 /** Retrouve le vendeur à partir de l'en-tête "Authorization: Bearer <token>". */
