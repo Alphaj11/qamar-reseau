@@ -116,61 +116,72 @@ export function applyRule(
   return { ok: true };
 }
 
-/** Millisecondes de blocage restantes pour ce compte (0 = pas bloqué). */
-function lockedFor(key: string): Promise<number> {
+/**
+ * Réserve un essai de code pour ce compte, AVANT de vérifier le code : chaque essai est compté d'un coup,
+ * même s'il en arrive plusieurs en même temps. Renvoie les millisecondes de blocage restantes si le compte
+ * est bloqué (l'essai est alors refusé), sinon 0. Le 5e essai de suite pose le blocage de 15 min ;
+ * une connexion réussie efface le compteur. Après un blocage expiré, on repart de zéro.
+ */
+function reserveAttempt(key: string): Promise<number> {
   return withSecurityStore(
     async (c) => {
-      const { rows } = await c.query<{ ms: number }>(
-        "select ceil(extract(epoch from (locked_until - now())) * 1000)::int as ms from login_failures where email = $1 and locked_until > now()",
-        [key],
-      );
-      return rows[0]?.ms ?? 0;
-    },
-    () => {
-      const f = failures.get(key);
-      return f && f.lockedUntil > Date.now() ? f.lockedUntil - Date.now() : 0;
-    },
-  );
-}
-
-/** Compte un code faux ; au 5e de suite, bloque le compte. Après un blocage expiré, on repart de zéro. */
-function recordFailure(key: string): Promise<void> {
-  return withSecurityStore(
-    async (c) => {
-      await c.query(
-        `insert into login_failures as f (email, count) values ($1, 1)
+      // Ménage de temps en temps : compteurs oubliés depuis plus d'un jour (adresses inventées, etc.)
+      if (Math.random() < 0.01) {
+        await c.query("delete from login_failures where updated_at < now() - interval '1 day' and (locked_until is null or locked_until < now())");
+      }
+      const { rows } = await c.query<{ count: number }>(
+        `insert into login_failures as f (email, count, updated_at) values ($1, 1, now())
          on conflict (email) do update set
            count = case when f.locked_until is not null then 1 else f.count + 1 end,
-           locked_until = null`,
+           locked_until = null,
+           updated_at = now()
+         where f.locked_until is null or f.locked_until <= now()
+         returning count`,
         [key],
       );
-      await c.query(
-        "update login_failures set count = 0, locked_until = now() + make_interval(secs => $2) where email = $1 and count >= $3",
-        [key, LOCK_MS / 1000, MAX_FAILS],
-      );
+      if (!rows[0]) {
+        // Ligne déjà bloquée : l'essai est refusé sans être compté
+        const locked = await c.query<{ ms: number }>(
+          "select greatest(1, ceil(extract(epoch from (locked_until - now())) * 1000))::int as ms from login_failures where email = $1",
+          [key],
+        );
+        return locked.rows[0]?.ms ?? LOCK_MS;
+      }
+      if (rows[0].count >= MAX_FAILS) {
+        await c.query("update login_failures set count = 0, locked_until = now() + make_interval(secs => $2) where email = $1", [key, LOCK_MS / 1000]);
+      }
+      return 0;
     },
     () => {
+      const now = Date.now();
       const f = failures.get(key);
+      if (f && f.lockedUntil > now) return f.lockedUntil - now;
       const count = (f && f.lockedUntil === 0 ? f.count : 0) + 1;
-      failures.set(key, count >= MAX_FAILS ? { count: 0, lockedUntil: Date.now() + LOCK_MS } : { count, lockedUntil: 0 });
+      failures.set(key, count >= MAX_FAILS ? { count: 0, lockedUntil: now + LOCK_MS } : { count, lockedUntil: 0 });
+      return 0;
     },
   );
 }
 
-function clearFailures(key: string): Promise<void> {
-  return withSecurityStore(
-    async (c) => {
-      await c.query("delete from login_failures where email = $1", [key]);
-    },
-    () => {
-      failures.delete(key);
-    },
-  );
+/** Connexion réussie : le compteur repart de zéro. Un souci ici ne doit pas faire échouer la connexion. */
+async function clearFailures(key: string): Promise<void> {
+  try {
+    await withSecurityStore(
+      async (c) => {
+        await c.query("delete from login_failures where email = $1", [key]);
+      },
+      () => {
+        failures.delete(key);
+      },
+    );
+  } catch (e) {
+    console.error("[connexion] compteur d'essais non remis à zéro", e);
+  }
 }
 
 export async function login(email: string, pin: string) {
   const key = email.trim().toLowerCase();
-  const locked = await lockedFor(key);
+  const locked = await reserveAttempt(key);
   if (locked > 0) throw new LockedError(`Trop d'essais. Réessayez dans ${Math.ceil(locked / 60_000)} min.`);
   const session = await mutate((db) => {
     const staff = db.staff.find((s) => s.email.toLowerCase() === key);
@@ -185,7 +196,6 @@ export async function login(email: string, pin: string) {
     };
   });
   if (session) await clearFailures(key);
-  else await recordFailure(key);
   return session;
 }
 

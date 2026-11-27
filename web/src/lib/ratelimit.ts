@@ -17,13 +17,14 @@ export async function hit(key: string, max: number, windowMs: number): Promise<n
     async (c) => {
       // Un seul calcul à la fois par clé : deux essais simultanés ne passent pas tous les deux
       await c.query("select pg_advisory_xact_lock(hashtext($1))", [key]);
-      await c.query("delete from rate_hits where key = $1 and at <= now() - make_interval(secs => $2)", [key, windowMs / 1000]);
+      // statement_timestamp() et non now() : now() reste figé au début de la transaction, avant l'attente du verrou
+      await c.query("delete from rate_hits where key = $1 and at <= statement_timestamp() - make_interval(secs => $2)", [key, windowMs / 1000]);
       const { rows } = await c.query<{ n: number; wait: number | null }>(
-        "select count(*)::int as n, ceil(extract(epoch from (min(at) + make_interval(secs => $2) - now())))::int as wait from rate_hits where key = $1",
+        "select count(*)::int as n, ceil(extract(epoch from (min(at) + make_interval(secs => $2) - statement_timestamp())))::int as wait from rate_hits where key = $1",
         [key, windowMs / 1000],
       );
       if (rows[0].n >= max) return Math.max(1, rows[0].wait ?? 1);
-      await c.query("insert into rate_hits (key) values ($1)", [key]);
+      await c.query("insert into rate_hits (key, at) values ($1, statement_timestamp())", [key]);
       // Ménage de temps en temps des clés mortes (plus d'un jour)
       if (Math.random() < 0.01) await c.query("delete from rate_hits where at < now() - interval '1 day'");
       return 0;
