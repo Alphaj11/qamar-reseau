@@ -4,7 +4,7 @@
 import sharp from "sharp";
 import { z } from "zod";
 import { json, preflight, readJson, withStaff } from "@/lib/http";
-import { setLogo } from "@/lib/merchant";
+import { requireOwner, setLogo } from "@/lib/merchant";
 import { notifyProgramChanged } from "@/lib/wallet/notify";
 
 const MAX_BYTES = 6 * 1024 * 1024;
@@ -14,6 +14,7 @@ export const OPTIONS = preflight;
 
 export function POST(request: Request) {
   return withStaff(request, async (staff) => {
+    requireOwner(staff); // vérifié en premier : un vendeur ne fait même pas traiter d'image
     const parsed = body.safeParse(await readJson(request));
     if (!parsed.success) return json({ error: "Image trop lourde ou invalide (6 Mo maximum)" }, 400);
     const raw = parsed.data.image.replace(/^data:image\/[a-z+]+;base64,/, "");
@@ -35,6 +36,7 @@ export function POST(request: Request) {
 
 export function DELETE(request: Request) {
   return withStaff(request, async (staff) => {
+    requireOwner(staff); // vérifié en premier : un vendeur ne fait même pas traiter d'image
     const { settings, serials, program } = await setLogo(staff, undefined);
     if (serials.length) notifyProgramChanged(program, serials);
     return json({ settings });

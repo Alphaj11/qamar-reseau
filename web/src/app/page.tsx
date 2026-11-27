@@ -22,7 +22,7 @@ export default function Home() {
 
 function Accueil() {
   return (
-    <div className="relative flex min-h-dvh flex-col overflow-hidden">
+    <div className="relative flex flex-1 flex-col overflow-hidden">
       <EtoileFilante />
       <SiteHeader />
       <main className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-8 px-4 py-16 text-center">
@@ -46,11 +46,6 @@ function Accueil() {
             Découvrir QAMAR
           </a>
         </div>
-        <nav className="flex gap-4 text-sm text-muted">
-          <Link href="/aide" className="underline underline-offset-2">Aide</Link>
-          <Link href="/cgv" className="underline underline-offset-2">CGV</Link>
-          <Link href="/confidentialite" className="underline underline-offset-2">Confidentialité</Link>
-        </nav>
       </main>
     </div>
   );

@@ -164,7 +164,7 @@ function reserveAttempt(key: string): Promise<number> {
 }
 
 /** Connexion réussie : le compteur repart de zéro. Un souci ici ne doit pas faire échouer la connexion. */
-async function clearFailures(key: string): Promise<void> {
+export async function clearFailures(key: string): Promise<void> {
   try {
     await withSecurityStore(
       async (c) => {

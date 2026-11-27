@@ -81,6 +81,7 @@ jobs:
           STRIPE_WEBHOOK_SECRET=whsec_dev_local_test
           CRON_SECRET=cron_dev_local_test
           SEED_DEMO=1
+          TRUSTED_PROXY_HOPS=0
           ENV
       - name: Build de production
         run: npx next build
@@ -89,6 +90,12 @@ jobs:
           npx next start -p 3000 > server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:3000/api/health && break; sleep 1; done
           node scripts/e2e-api.mjs
+      - name: Navigateur pour les tests de sécurité
+        run: npx playwright install --with-deps chromium
+      - name: Tests de vulnérabilité
+        run: node scripts/securite.mjs
+      - name: Dépendances sans faille connue
+        run: npm audit --omit=dev --audit-level=moderate
       - name: Journal du serveur (en cas d'échec)
         if: failure()
         run: tail -n 200 server.log

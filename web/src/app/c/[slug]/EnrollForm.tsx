@@ -83,6 +83,18 @@ export function EnrollForm({
         <span>J&apos;accepte de recevoir les offres et actualités de la boutique sur ma carte. Désactivable à tout moment.</span>
       </label>
 
+      <p className="text-xs text-muted">
+        En créant ma carte, j&apos;accepte les{" "}
+        <a href="/conditions" target="_blank" className="underline underline-offset-2">
+          conditions d&apos;utilisation
+        </a>{" "}
+        et la{" "}
+        <a href="/confidentialite" target="_blank" className="underline underline-offset-2">
+          politique de confidentialité
+        </a>
+        .
+      </p>
+
       {e.form && <p className="text-sm text-danger">{e.form}</p>}
 
       <button

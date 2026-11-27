@@ -10,7 +10,7 @@ const FAQ: [string, string][] = [
   ["Comment mes clients obtiennent-ils la carte ?", "Ils scannent votre QR code d'inscription (onglet Carte › QR code), saisissent leur prénom et ajoutent la carte à Apple Wallet ou Google Wallet. Aucune application à installer."],
   ["Comment ajouter un tampon ?", "Onglet Scanner : visez le QR code affiché sur la carte du client, puis validez. Sans réseau, le passage est gardé sur le téléphone et envoyé dès le retour de la connexion."],
   ["Comment changer le design de ma carte ?", "Onglet Carte › Apparence : choisissez un modèle par métier, votre logo, vos couleurs et le pictogramme. Les cartes déjà installées se mettent à jour automatiquement."],
-  ["J'ai oublié mon code PIN", "Le responsable du commerce peut retirer puis réinviter un vendeur depuis Profil › Équipe. Pour le compte responsable, écrivez-nous."],
+  ["J'ai oublié mon code PIN", "Touchez « Code oublié ? » sur l'écran de connexion, ou ouvrez /code-oublie : vous recevez par e-mail un lien valable 30 minutes pour choisir un nouveau code. Le responsable peut aussi retirer puis réinviter un vendeur depuis Profil › Équipe."],
   ["Comment arrêter mon abonnement ?", "Le responsable ouvre l'application sur le site, puis Profil › Factures et moyen de paiement. Vos clients et leurs tampons sont conservés : vous pourrez reprendre plus tard."],
   ["Comment supprimer mon compte ?", "Profil › Zone sensible › Supprimer mon compte. Pour le responsable, l'abonnement s'arrête et toutes les données du commerce sont effacées définitivement. Pour un vendeur, seul son accès est retiré."],
 ];

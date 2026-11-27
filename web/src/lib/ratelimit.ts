@@ -48,9 +48,26 @@ function hitMemory(key: string, max: number, windowMs: number, now = Date.now())
   return 0;
 }
 
-/** Adresse IP du visiteur (derrière Vercel / un proxy : première adresse de x-forwarded-for). */
+/**
+ * Adresse IP du visiteur, pour les limites d'essais.
+ * Le visiteur peut écrire lui-même un en-tête X-Forwarded-For : chaque relais (Cloudflare, puis Render)
+ * ajoute l'adresse qu'il voit à la fin de la liste. On lit donc d'abord CF-Connecting-IP (posé par
+ * Cloudflare, qui écrase toute valeur envoyée par le visiteur), sinon la liste en partant de la fin,
+ * en sautant les TRUSTED_PROXY_HOPS derniers relais (1 par défaut : le relais Cloudflare devant Render).
+ * Jamais la première adresse de la liste : c'est celle que le visiteur peut inventer.
+ */
 export function clientIp(headers: Headers): string {
-  return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || headers.get("x-real-ip") || "inconnue";
+  const cf = headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  const chain = (headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (chain.length) {
+    const hops = Math.max(0, Math.floor(Number(process.env.TRUSTED_PROXY_HOPS ?? 1)) || 0);
+    return chain[Math.max(0, chain.length - 1 - hops)];
+  }
+  return headers.get("x-real-ip")?.trim() || "inconnue";
 }
 
 export const tooMany = (seconds: number) =>

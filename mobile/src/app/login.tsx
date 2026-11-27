@@ -87,6 +87,7 @@ export default function Login() {
             />
             {error ? <Text style={{ color: p.danger, fontSize: 14 }}>{error}</Text> : null}
             <Button label="Se connecter" onPress={submit} loading={loading} />
+            <Button label="Code oublié ?" variant="secondary" onPress={() => void Linking.openURL(`${API_URL}/code-oublie`)} />
           </View>
           <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: p.line, paddingTop: 22 }}>
             <Button label="Découvrir l'appli" variant="secondary" icon="sparkles-outline" onPress={() => void discover()} loading={demoLoading} />
