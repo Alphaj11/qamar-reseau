@@ -77,6 +77,10 @@ export function SignupForm({ cta, plans }: { cta: string; plans: PlanOption[] })
           J&apos;accepte les{" "}
           <Link href="/cgv" className="text-foreground underline decoration-accent underline-offset-2" target="_blank">
             conditions générales de vente
+          </Link>{" "}
+          et j&apos;ai lu la{" "}
+          <Link href="/confidentialite" className="text-foreground underline decoration-accent underline-offset-2" target="_blank">
+            politique de confidentialité
           </Link>
           .
         </span>

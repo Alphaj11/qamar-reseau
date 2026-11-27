@@ -19,6 +19,26 @@ Audit fait le 20/11/2026 sur `web` (Next.js 16) et `mobile` (Expo 58).
 
 Autres ajouts : en-têtes de sécurité HTTP (HSTS, anti-iframe, nosniff, Referrer-Policy, Permissions-Policy), en-tête `X-Powered-By` retiré, déconnexion qui coupe la session côté serveur.
 
+## Audit du 27/11/2026 : parcours, pages légales, failles
+
+Tests automatiques : `web/scripts/securite.mjs` (lancé par la CI après les tests de bout en bout, 22 contrôles).
+
+| Point | État | Détail |
+|---|---|---|
+| Parcours paiement → accès | ✅ Vérifié | Compte en attente : connexion possible, caisse et inscription client bloquées (402). Webhook Stripe signé → accès ouvert ; résiliation → accès coupé (tests e2e). |
+| Accueil public | ✅ Corrigé | Ne liste plus aucun commerce en production. |
+| Clés d'API | ✅ OK | Aucune clé dans le dépôt ni dans l'appli mobile ; toutes côté serveur (Render). `RESEND_API_KEY` ajoutée au même endroit. |
+| XSS | ✅ Testé | React échappe tout texte ; aucun `dangerouslySetInnerHTML` ; logos et bannières réencodés en PNG/JPEG par le serveur. Ajout d'une politique CSP (scripts du site seulement, formulaires vers le site ou Stripe, pas d'iframe). |
+| CORS | ✅ Fermé | En production, plus d'`Access-Control-Allow-Origin: *` sur l'API ni sur les exports (variable `CORS_ORIGINS`, une seule origine, si besoin). |
+| CSP et scripts « inline » | ⚠️ Choix | `script-src` garde `'unsafe-inline'` : Next.js en a besoin pour ses pages pré-rendues. Le passer en « nonce » obligerait à rendre chaque page à la demande (plus lent, plus cher). La vraie protection XSS reste l'échappement de React, testé. |
+| Adresse IP falsifiable | ✅ Corrigé | Les limites d'essais lisaient la 1re adresse de X-Forwarded-For, que le visiteur peut inventer. Maintenant : CF-Connecting-IP, sinon la liste lue depuis la fin (`TRUSTED_PROXY_HOPS`). |
+| Routes du responsable | ✅ Testé | 17 routes refusées à un vendeur ; logo et bannière vérifient le rôle avant de lire l'image. Un commerce ne voit ni ne modifie les clients d'un autre. |
+| Base de données | ✅ Renforcé | RLS sur toutes les tables (testé) ; migration 0004 retire tous les droits des rôles publics Supabase (`anon`, `authenticated`). Requêtes toujours paramétrées (injections testées). |
+| Code oublié | ✅ Ajouté | Lien par e-mail valable 30 min, une seule fois, stocké en empreinte SHA-256 ; une nouvelle demande ne casse pas un lien en cours (3 demandes / h max) ; utiliser un lien enregistre le code, coupe toutes les sessions et annule les liens plus anciens en une seule transaction ; changer son code dans l'appli annule tous les liens ; même réponse que le compte existe ou non. Nécessite Resend (`RESEND_API_KEY`, `MAIL_FROM`). |
+| Cookies | ✅ Aucun | Le site ne dépose aucun cookie (testé) : pas de bandeau nécessaire. À revoir si un outil de mesure d'audience est ajouté. |
+| Pages légales | ⚠️ À compléter | Mentions légales, CGV, conditions d'utilisation, confidentialité rédigées ; infos société via les variables `LEGAL_*` ; relecture par un juriste conseillée. |
+| Dépendances | ✅ Corrigé | `npm audit` : 0 faille (joi et uuid forcés en versions corrigées) ; contrôle ajouté à la CI. |
+
 ## À faire par toi (dans les tableaux de bord)
 
 1. **Stripe** › Developers › Webhooks : créer l'adresse de production `https://TON-DOMAINE/api/stripe/webhook` avec les évènements `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`, puis copier le `whsec_…` dans les variables de l'hébergeur.

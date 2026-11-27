@@ -1,16 +1,24 @@
-// Réponses JSON de l'API caisse. L'appli native n'a pas besoin de CORS ;
-// on l'autorise pour la version web de l'appli pendant le développement.
+// Réponses JSON de l'API caisse. L'appli native n'a pas besoin de CORS.
+// En développement, la version web de l'appli (localhost:8081) l'utilise : on l'ouvre à tous.
+// En production, seule l'origine indiquée dans CORS_ORIGINS y a droit (une seule : aucun client web n'en a besoin aujourd'hui).
+// Les sessions passent par l'en-tête Authorization (pas de cookie) : un autre site ne peut pas s'en servir.
 import "server-only";
 import { ForbiddenError, RuleError } from "./merchant";
 import { authenticate } from "./staff";
 import { merchantIsActive, merchantIsDemo } from "./subscription";
 import type { Staff } from "./types";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
+const allowed = [(process.env.CORS_ORIGINS ?? "").trim()].filter(Boolean);
+export const CORS: Record<string, string> =
+  process.env.NODE_ENV !== "production"
+    ? { "Access-Control-Allow-Origin": "*" }
+    : allowed[0]
+      ? { "Access-Control-Allow-Origin": allowed[0], Vary: "Origin" }
+      : {};
+Object.assign(CORS, {
   "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+});
 
 export function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { ...CORS, "Cache-Control": "no-store" } });
