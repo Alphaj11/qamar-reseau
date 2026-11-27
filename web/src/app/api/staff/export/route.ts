@@ -14,7 +14,7 @@ const query = z.object({
   days: z.coerce.number().int().min(1).max(3660).default(30),
 });
 
-export function GET(request: Request) {
+export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = query.safeParse(Object.fromEntries(url.searchParams));
   if (!parsed.success) return json({ error: "Paramètres d'export invalides" }, 400);
@@ -24,7 +24,7 @@ export function GET(request: Request) {
   const t = url.searchParams.get("t");
   let req = request;
   if (t) {
-    const session = takeDownloadToken(t);
+    const session = await takeDownloadToken(t);
     if (!session) return json({ error: "Lien expiré, relancez l'export depuis l'appli" }, 401);
     req = new Request(request.url, { headers: { Authorization: `Bearer ${session}` } });
   }

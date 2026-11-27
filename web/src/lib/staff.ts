@@ -7,11 +7,12 @@ import { maybeAskReview } from "./review";
 import { subscriptionView } from "./subscription";
 import type { Card, Program, Staff, TransactionKind } from "./types";
 import { DEMO_STAFF } from "./showcase";
+import { withSecurityStore } from "./security-store";
 
 const SESSION_DAYS = 30;
 
-// Anti-essais : 5 codes faux de suite → compte bloqué 15 min (mémoire du serveur ;
-// à déplacer en base avec Supabase pour tenir sur plusieurs serveurs).
+// Anti-essais : 5 codes faux de suite → compte bloqué 15 min. En base Postgres quand elle est branchée
+// (table login_failures, partagée entre les serveurs), sinon en mémoire du serveur.
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60_000;
 const failures = new Map<string, { count: number; lockedUntil: number }>();
@@ -115,21 +116,65 @@ export function applyRule(
   return { ok: true };
 }
 
-export async function login(email: string, pin: string) {
-  const key = email.trim().toLowerCase();
-  const f = failures.get(key);
-  if (f && f.lockedUntil > Date.now()) {
-    throw new LockedError(`Trop d'essais. Réessayez dans ${Math.ceil((f.lockedUntil - Date.now()) / 60_000)} min.`);
-  }
-  return mutate((db) => {
-    const staff = db.staff.find((s) => s.email.toLowerCase() === key);
-    if (!staff || !verifyPin(pin, staff.pinHash)) {
-      // Après un blocage expiré, on repart de zéro
+/** Millisecondes de blocage restantes pour ce compte (0 = pas bloqué). */
+function lockedFor(key: string): Promise<number> {
+  return withSecurityStore(
+    async (c) => {
+      const { rows } = await c.query<{ ms: number }>(
+        "select ceil(extract(epoch from (locked_until - now())) * 1000)::int as ms from login_failures where email = $1 and locked_until > now()",
+        [key],
+      );
+      return rows[0]?.ms ?? 0;
+    },
+    () => {
+      const f = failures.get(key);
+      return f && f.lockedUntil > Date.now() ? f.lockedUntil - Date.now() : 0;
+    },
+  );
+}
+
+/** Compte un code faux ; au 5e de suite, bloque le compte. Après un blocage expiré, on repart de zéro. */
+function recordFailure(key: string): Promise<void> {
+  return withSecurityStore(
+    async (c) => {
+      await c.query(
+        `insert into login_failures as f (email, count) values ($1, 1)
+         on conflict (email) do update set
+           count = case when f.locked_until is not null then 1 else f.count + 1 end,
+           locked_until = null`,
+        [key],
+      );
+      await c.query(
+        "update login_failures set count = 0, locked_until = now() + make_interval(secs => $2) where email = $1 and count >= $3",
+        [key, LOCK_MS / 1000, MAX_FAILS],
+      );
+    },
+    () => {
+      const f = failures.get(key);
       const count = (f && f.lockedUntil === 0 ? f.count : 0) + 1;
       failures.set(key, count >= MAX_FAILS ? { count: 0, lockedUntil: Date.now() + LOCK_MS } : { count, lockedUntil: 0 });
-      return undefined;
-    }
-    failures.delete(key);
+    },
+  );
+}
+
+function clearFailures(key: string): Promise<void> {
+  return withSecurityStore(
+    async (c) => {
+      await c.query("delete from login_failures where email = $1", [key]);
+    },
+    () => {
+      failures.delete(key);
+    },
+  );
+}
+
+export async function login(email: string, pin: string) {
+  const key = email.trim().toLowerCase();
+  const locked = await lockedFor(key);
+  if (locked > 0) throw new LockedError(`Trop d'essais. Réessayez dans ${Math.ceil(locked / 60_000)} min.`);
+  const session = await mutate((db) => {
+    const staff = db.staff.find((s) => s.email.toLowerCase() === key);
+    if (!staff || !verifyPin(pin, staff.pinHash)) return undefined;
     const token = crypto.randomBytes(32).toString("base64url");
     db.sessions.push({ token, staffId: staff.id, createdAt: new Date().toISOString() });
     const merchant = db.merchants.find((m) => m.id === staff.merchantId);
@@ -139,6 +184,9 @@ export async function login(email: string, pin: string) {
       subscription: merchant ? subscriptionView(merchant) : undefined,
     };
   });
+  if (session) await clearFailures(key);
+  else await recordFailure(key);
+  return session;
 }
 
 /** Retrouve le vendeur à partir de l'en-tête "Authorization: Bearer <token>". */

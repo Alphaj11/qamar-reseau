@@ -25,7 +25,7 @@ Autres ajouts : en-têtes de sécurité HTTP (HSTS, anti-iframe, nosniff, Referr
 2. **CRON_SECRET** : mettre une longue valeur aléatoire chez l'hébergeur et programmer l'appel quotidien de `/api/cron/daily`.
 3. **Supabase** (au branchement) : Advisors › Security Advisor sans rouge ; Database › Backups activé.
 4. **Surveillance** : créer un moniteur gratuit (UptimeRobot ou Better Stack) sur `https://TON-DOMAINE/api/health` toutes les 5 minutes, alerte par e-mail. Pour le détail des plantages : créer un compte Sentry et me donner le DSN, je l'intègre (web + mobile).
-5. **Hébergement à plusieurs serveurs** : la limite d'essais est gardée en mémoire. Si l'hébergeur lance plusieurs instances, la déplacer dans la base (je peux le faire au branchement de Supabase).
+5. **Hébergement à plusieurs serveurs** : fait. Avec Postgres, la limite d'essais, le blocage après 5 codes faux et les liens d'export sont en base (`supabase/migrations/0002_securite.sql`) : ils tiennent après un redémarrage et sont partagés entre les serveurs. Sans base (fichier JSON), ils restent en mémoire.
 6. **Clé Stripe** : utiliser une clé restreinte (`rk_live_…`) limitée aux abonnements, si possible.
 
 ## Sauvegardes et restauration

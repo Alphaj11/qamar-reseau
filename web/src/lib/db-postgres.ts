@@ -10,7 +10,7 @@
 // qu'avec le fichier JSON, donc les tests de bout en bout restent valables) ; les requêtes les plus
 // fréquentes seront remplacées par des requêtes ciblées quand le volume le demandera.
 import "server-only";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import type { DevDb } from "./db";
 import { readAll, TABLES, writeDiff } from "./db-schema";
 
@@ -25,6 +25,25 @@ function getPool() {
     ssl: /sslmode=require|supabase\.(co|com)/.test(process.env.DATABASE_URL ?? "") ? { rejectUnauthorized: false } : undefined,
   });
   return pool;
+}
+
+/**
+ * Petite transaction pour les tables de sécurité (rate_hits, login_failures, download_tokens),
+ * qui ne passent pas par load()/mutate() : elles sont lues et écrites ligne par ligne.
+ */
+export async function pgTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("begin");
+    const result = await fn(client);
+    await client.query("commit");
+    return result;
+  } catch (e) {
+    await client.query("rollback").catch(() => undefined);
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Remplit une base vide avec les données de démo (comptes cafe@demo.test, etc.). */
